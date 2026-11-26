@@ -36,7 +36,7 @@ d4 d5 c4 dxc4 e3 Nf6 Bxc4 e6 Nf3 c5 O-O Nc6
 5. **Order inside a variation:** `## Name` -> `eco:` / `playerColor:` -> Notes -> ```` ```moves ```` block.
 6. **Inheritance:** A variation may override `playerColor`; if omitted, it inherits the file-level `playerColor`.
 7. **Moves block:** Standard Algebraic Notation (SAN) only, whitespace-separated, **no move numbers** (`1.` is forbidden), no comments, no NAGs.
-8. **Limits:** Max 20 variations per file, max 40 plies per variation.
+8. **Limits:** Max 20 variations per file. No move limit per variation — add as many plies as needed as long as all moves are legal SAN.
 9. **Encoding & filenames:** UTF-8, LF line endings, lowercase kebab-case filename (`queens-gambit.md`).
 
 ## 3. Error Policy

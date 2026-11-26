@@ -1,6 +1,5 @@
 import { Chess } from 'chess.js';
 import {
-  MAX_PLIES_PER_VARIATION,
   MAX_VARIATIONS_PER_FILE,
   parseOpeningMarkdown,
   type ParsedOpening,
@@ -25,13 +24,6 @@ export function validateOpening(parsed: ParsedOpening): ParsedOpening {
 
   for (const variation of parsed.variations) {
     const varErrors = [...variation.errors];
-
-    if (variation.moves.length > MAX_PLIES_PER_VARIATION) {
-      const plyLimitMsg = `Variation "${variation.name}": exceeds maximum of ${MAX_PLIES_PER_VARIATION} plies (${variation.moves.length}).`;
-      if (!varErrors.includes(plyLimitMsg)) {
-        varErrors.push(plyLimitMsg);
-      }
-    }
 
     if (variation.hasMovesBlock && variation.moves.length > 0) {
       const chess = new Chess();

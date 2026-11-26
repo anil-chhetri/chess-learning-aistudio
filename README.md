@@ -221,7 +221,7 @@ e4 c6 d4 d5 e5 Bf5 Nf3 e6 Be2 c5 Be3
 | Unknown frontmatter key | `author: Alex` | Allowed keys are `formatVersion`, `title`, `playerColor`, `tags` |
 | Illegal or mistyped SAN move | `Bxc5` when bishop can't reach c5 | Fix SAN notation (e.g., `Bb5`, `O-O`, `Nxd4`) |
 | Missing `moves` block | Notes under `## Line` without ```` ```moves ```` | Add a fenced ```` ```moves ... ``` ```` block |
-| More than 20 variations or 40 plies | 45-ply line | Keep ≤ 20 variations/file and ≤ 40 plies/variation |
+| More than 20 variations in one file | 25 variations in a single `.md` | Keep ≤ 20 variations per file (there is no limit on moves per variation) |
 
 ---
 

@@ -1,6 +1,5 @@
 export const SUPPORTED_FORMAT_VERSION = 1;
 export const MAX_VARIATIONS_PER_FILE = 20;
-export const MAX_PLIES_PER_VARIATION = 40;
 
 const VALID_COLORS = new Set<string>(['white', 'black']);
 const ALLOWED_FRONTMATTER_KEYS = new Set<string>([
@@ -132,10 +131,6 @@ export function parseOpeningMarkdown(rawText: string): ParsedOpening {
     } else if (current.moves.length === 0) {
       varErrors.push(
         `Variation "${current.name}": \`\`\`moves\`\`\` block is empty.`,
-      );
-    } else if (current.moves.length > MAX_PLIES_PER_VARIATION) {
-      varErrors.push(
-        `Variation "${current.name}": exceeds maximum of ${MAX_PLIES_PER_VARIATION} plies (${current.moves.length}).`,
       );
     }
 

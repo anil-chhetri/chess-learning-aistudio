@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Chess } from 'chess.js';
 import { describe, it } from 'node:test';
 import { parseOpeningMarkdown } from '../src/lib/parser.ts';
 import { parseAndValidateOpening } from '../src/lib/validate.ts';
@@ -155,5 +156,37 @@ author: Unknown
     assert.deepEqual(result.tags, ['d4', 'gambit', 'closed']);
     assert.equal(result.variations.length, 3);
     assert.ok(result.variations.every((v) => v.valid));
+  });
+
+  it('9. allows variations with more than 40 moves as long as all moves are legal', () => {
+    const chess = new Chess();
+    const moves = [];
+    for (let i = 0; i < 60 && !chess.isGameOver(); i += 1) {
+      const legal = chess.moves();
+      const chosen = legal[i % legal.length];
+      const played = chess.move(chosen);
+      moves.push(played.san);
+    }
+
+    const md = `---
+formatVersion: 1
+title: Long Study Line
+playerColor: white
+---
+
+## Deep Line
+eco: A00
+
+\`\`\`moves
+${moves.join(' ')}
+\`\`\`
+`;
+
+    const result = parseAndValidateOpening(md);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.variations.length, 1);
+    assert.equal(result.variations[0].valid, true);
+    assert.equal(result.variations[0].moves.length, moves.length);
+    assert.ok(result.variations[0].moves.length > 40);
   });
 });
