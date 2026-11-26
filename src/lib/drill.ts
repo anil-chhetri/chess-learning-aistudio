@@ -222,7 +222,13 @@ export function applyOpponentDrillMove(state: DrillState): {
   };
 }
 
-export function computeHintSquares(state: DrillState): HintSquares | null {
+export interface GuidedMoveInfo {
+  san: string;
+  from: Square;
+  to: Square;
+}
+
+export function computeGuidedMove(state: DrillState): GuidedMoveInfo | null {
   if (state.status !== DRILL_STATES.USER_TURN || !state.variation) {
     return null;
   }
@@ -233,10 +239,16 @@ export function computeHintSquares(state: DrillState): HintSquares | null {
   try {
     const chess = new Chess(state.fen);
     const move = chess.move(expectedSan);
-    return { from: move.from, to: move.to };
+    return { san: move.san, from: move.from, to: move.to };
   } catch {
     return null;
   }
+}
+
+export function computeHintSquares(state: DrillState): HintSquares | null {
+  const guided = computeGuidedMove(state);
+  if (!guided) return null;
+  return { from: guided.from, to: guided.to };
 }
 
 export function getNextPracticeVariation(

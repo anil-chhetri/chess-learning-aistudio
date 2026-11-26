@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Chess, type Move, type PieceSymbol, type Square } from 'chess.js';
+import { getArrowGeometry } from '../lib/boardGeometry.ts';
 import type { HintSquares } from '../lib/drill.ts';
 import type { PlayerColor } from '../lib/parser.ts';
 
@@ -28,6 +29,7 @@ interface ChessBoardProps {
   lastMove: { from: Square; to: Square } | null;
   locked?: boolean;
   hintSquares?: HintSquares | null;
+  arrowMove?: { from: Square; to: Square } | null;
   wrongSquare?: Square | null;
   onMakeMove: (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => void;
 }
@@ -48,6 +50,7 @@ export function ChessBoard({
   lastMove,
   locked = false,
   hintSquares = null,
+  arrowMove = null,
   wrongSquare = null,
   onMakeMove,
 }: ChessBoardProps) {
@@ -91,6 +94,14 @@ export function ChessBoard({
   const displayedRanks = useMemo(
     () => (orientation === 'white' ? [...RANKS] : [...RANKS].reverse()),
     [orientation],
+  );
+
+  const arrow = useMemo(
+    () =>
+      arrowMove
+        ? getArrowGeometry(arrowMove.from, arrowMove.to, orientation)
+        : null,
+    [arrowMove, orientation],
   );
 
   const boardSquares = useMemo(() => {
@@ -183,14 +194,15 @@ export function ChessBoard({
 
   return (
     <div className="relative select-none w-full">
-      <div
-        role="grid"
-        aria-label="Chessboard"
-        aria-disabled={locked || undefined}
-        className={`grid grid-cols-8 grid-rows-8 w-full aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C] ${
-          locked ? 'cursor-wait' : 'cursor-pointer'
-        }`}
-      >
+      <div className="relative w-full aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C]">
+        <div
+          role="grid"
+          aria-label="Chessboard"
+          aria-disabled={locked || undefined}
+          className={`grid grid-cols-8 grid-rows-8 w-full h-full ${
+            locked ? 'cursor-wait' : 'cursor-pointer'
+          }`}
+        >
         {boardSquares.map(({ square, fileIndex, rankIndex, isLight, piece }) => {
           const isSelected = selectedSquare === square;
           const legalCandidates = legalMovesForSelected.get(square);
@@ -338,6 +350,44 @@ export function ChessBoard({
             </button>
           );
         })}
+        </div>
+
+        {/* Directional Move Arrow Overlay (Practice mode & Test hints) */}
+        {arrow && (
+          <svg
+            viewBox="0 0 800 800"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-[25] w-full h-full"
+          >
+            <g opacity="0.88">
+              <line
+                x1={arrow.x1}
+                y1={arrow.y1}
+                x2={arrow.shaftEndX}
+                y2={arrow.shaftEndY}
+                stroke="#FFFBEB"
+                strokeWidth="22"
+                strokeLinecap="round"
+              />
+              <polygon
+                points={arrow.headPoints}
+                fill="#D97706"
+                stroke="#FFFBEB"
+                strokeWidth="5"
+                strokeLinejoin="round"
+              />
+              <line
+                x1={arrow.x1}
+                y1={arrow.y1}
+                x2={arrow.shaftEndX}
+                y2={arrow.shaftEndY}
+                stroke="#D97706"
+                strokeWidth="15"
+                strokeLinecap="round"
+              />
+            </g>
+          </svg>
+        )}
       </div>
 
       {/* Inline Pawn Promotion Picker */}

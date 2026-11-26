@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import { Chess } from 'chess.js';
 import { describe, it } from 'node:test';
 import {
+  getArrowGeometry,
+  getSquareCenter,
+} from '../src/lib/boardGeometry.ts';
+import {
   applyOpponentDrillMove,
   applyUserDrillMove,
+  computeGuidedMove,
   computeHintSquares,
   DRILL_STATES,
   getNextPracticeVariation,
@@ -182,5 +187,43 @@ describe('Phase 3: Drill State Machine, Coaching Controls & Persistence', () => 
     store.set('mistakesByVariation', '{bad-json');
     const safeFallback = loadTrainerProgress(mockStorage);
     assert.deepEqual(safeFallback.mistakesByVariation, {});
+  });
+
+  it('8. computeGuidedMove returns SAN and from/to squares during USER_TURN and null otherwise', () => {
+    const whiteDrill = startVariationDrill('lines/queens-gambit.md', WHITE_SIX_PLY, 0);
+    assert.deepEqual(computeGuidedMove(whiteDrill), {
+      san: 'd4',
+      from: 'd2',
+      to: 'd4',
+    });
+
+    const afterD4 = applyUserDrillMove(whiteDrill, 'd2', 'd4').state;
+    assert.equal(afterD4.status, DRILL_STATES.OPPONENT_TURN);
+    assert.equal(computeGuidedMove(afterD4), null);
+
+    const completedState = {
+      ...whiteDrill,
+      status: DRILL_STATES.VARIATION_COMPLETE,
+      drillIndex: WHITE_SIX_PLY.moves.length,
+    };
+    assert.equal(computeGuidedMove(completedState), null);
+  });
+
+  it('9. getArrowGeometry computes orientation-aware coordinates and ignores zero-length arrows', () => {
+    assert.deepEqual(getSquareCenter('a1', 'white'), { x: 50, y: 750 });
+    assert.deepEqual(getSquareCenter('a1', 'black'), { x: 750, y: 50 });
+
+    const whiteArrow = getArrowGeometry('d2', 'd4', 'white');
+    assert.ok(whiteArrow);
+    assert.ok(whiteArrow.y2 < whiteArrow.y1, 'White d2->d4 points upward');
+    assert.equal(Math.round(whiteArrow.x1), 350);
+    assert.equal(Math.round(whiteArrow.x2), 350);
+
+    const blackArrow = getArrowGeometry('d2', 'd4', 'black');
+    assert.ok(blackArrow);
+    assert.ok(blackArrow.y2 > blackArrow.y1, 'Black-flipped d2->d4 points downward');
+    assert.equal(Math.round(blackArrow.x1), 450);
+
+    assert.equal(getArrowGeometry('e4', 'e4', 'white'), null);
   });
 });

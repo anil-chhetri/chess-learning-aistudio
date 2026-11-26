@@ -10,3 +10,4 @@
 | `3.1-drill` | Phase 3 | Variation drill state machine (`IDLE`, `USER_TURN`, `OPPONENT_TURN`, `VARIATION_COMPLETE`) | Drill completes as White & Black; board locked during opponent reply | Done | `1.2-parser`, `1.3-board` |
 | `3.2-controls` | Phase 3 | Coaching controls (Hint, Reset, Auto-Loop, Practice All) + mistakes/progress | Hint highlights source + target; Practice All cycles `1..N` | Done | `3.1-drill` |
 | `3.3-persistence` | Phase 3 | Persist `lastOpening`, `lastVariation`, `mistakesByVariation` in `localStorage` | Page refresh restores active variation and mistake counts | Done | `3.2-controls` |
+| `3.4-practice-test-modes` | Phase 3 | Practice vs Test session modes (`Practice` shows live move direction arrow + SAN cue; `Test` preserves unassisted drill with on-demand Hint) | Segmented mode switcher above board toggles Practice and Test cleanly across White/Black orientations | Done | `3.1-drill`, `3.2-controls` |

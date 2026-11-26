@@ -3,7 +3,9 @@ import type { Square } from 'chess.js';
 import {
   AlertCircle,
   ArrowUpDown,
+  BookOpen,
   CheckCircle2,
+  Compass,
   Layers,
   Lightbulb,
   Repeat,
@@ -19,6 +21,7 @@ import { ParserLab } from './components/ParserLab.tsx';
 import {
   applyOpponentDrillMove,
   applyUserDrillMove,
+  computeGuidedMove,
   computeHintSquares,
   createIdleDrillState,
   DRILL_STATES,
@@ -29,6 +32,7 @@ import {
   startVariationDrill,
   WRONG_FLASH_MS,
   type DrillState,
+  type GuidedMoveInfo,
 } from './lib/drill.ts';
 import {
   loadOpeningsFromManifest,
@@ -43,10 +47,13 @@ import {
 } from './lib/storage.ts';
 
 type AppTab = 'board' | 'parser' | 'spec';
+type SessionMode = 'practice' | 'test';
 
 function getDrillStatusBanner(
   drill: DrillState,
   practiceAllComplete: boolean,
+  sessionMode: SessionMode,
+  guidedMove: GuidedMoveInfo | null,
 ): {
   label: string;
   tone: 'neutral' | 'turn' | 'wait' | 'wrong' | 'complete';
@@ -56,12 +63,22 @@ function getDrillStatusBanner(
 
   if (drill.wrongSquare) {
     return {
-      label: 'Not the opening move — try again or use Hint',
+      label:
+        sessionMode === 'practice' && guidedMove
+          ? `Follow arrow · Play ${guidedMove.san} (${guidedMove.from} → ${guidedMove.to})`
+          : 'Not the opening move — try again or use Hint',
       tone: 'wrong',
       colorSquare: variationColor,
     };
   }
   if (drill.status === DRILL_STATES.USER_TURN) {
+    if (sessionMode === 'practice' && guidedMove) {
+      return {
+        label: `Practice · Play ${guidedMove.san} (${guidedMove.from} → ${guidedMove.to})`,
+        tone: 'turn',
+        colorSquare: variationColor,
+      };
+    }
     return {
       label: `Your turn (${variationColor === 'w' ? 'White' : 'Black'})`,
       tone: 'turn',
@@ -93,6 +110,7 @@ function getDrillStatusBanner(
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('board');
+  const [sessionMode, setSessionMode] = useState<SessionMode>('practice');
   const [loadingOpenings, setLoadingOpenings] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [openings, setOpenings] = useState<LoadedOpeningEntry[]>([]);
@@ -402,9 +420,30 @@ export default function App() {
     });
   }, [activeVariation]);
 
-  const banner = getDrillStatusBanner(drill, practiceAllComplete);
+  const handleChangeSessionMode = useCallback((mode: SessionMode) => {
+    setSessionMode(mode);
+    if (mode === 'test') {
+      setDrill((prev) => (prev.hintSquares ? { ...prev, hintSquares: null } : prev));
+    }
+  }, []);
+
+  const guidedMove =
+    sessionMode === 'practice' ? computeGuidedMove(drill) : null;
+  const activeHintSquares = guidedMove
+    ? { from: guidedMove.from, to: guidedMove.to }
+    : drill.hintSquares;
+  const activeArrowMove = guidedMove
+    ? { from: guidedMove.from, to: guidedMove.to }
+    : drill.hintSquares;
+  const banner = getDrillStatusBanner(
+    drill,
+    practiceAllComplete,
+    sessionMode,
+    guidedMove,
+  );
   const boardLocked = drill.status !== DRILL_STATES.USER_TURN;
-  const canHint = drill.status === DRILL_STATES.USER_TURN;
+  const canHint =
+    drill.status === DRILL_STATES.USER_TURN && sessionMode === 'test';
   const canReset = Boolean(drill.variation);
 
   return (
@@ -542,6 +581,47 @@ export default function App() {
               className="min-w-0 md:col-start-1 md:row-start-1 md:row-span-2 xl:col-start-2 xl:row-start-1 xl:row-span-1 flex flex-col items-center justify-start xl:justify-center bg-white border border-[#E2E0D8] rounded-lg p-3.5 sm:p-5 lg:p-6"
             >
               <div className="w-full max-w-[min(92vw,600px)] flex flex-col gap-3">
+                {/* Session Mode Switcher (Practice = Guided, Test = Memory Recall) */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div
+                    role="group"
+                    aria-label="Session mode"
+                    className="inline-flex rounded-md border border-[#D8D5CB] bg-[#F7F6F2] p-0.5"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={sessionMode === 'practice'}
+                      onClick={() => handleChangeSessionMode('practice')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-colors min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
+                        sessionMode === 'practice'
+                          ? 'bg-[#1B5E3A] text-white shadow-xs'
+                          : 'text-zinc-700 hover:text-zinc-950'
+                      }`}
+                    >
+                      <Compass className="w-3.5 h-3.5" aria-hidden="true" />
+                      Practice
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={sessionMode === 'test'}
+                      onClick={() => handleChangeSessionMode('test')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-colors min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
+                        sessionMode === 'test'
+                          ? 'bg-[#1B5E3A] text-white shadow-xs'
+                          : 'text-zinc-700 hover:text-zinc-950'
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
+                      Test
+                    </button>
+                  </div>
+                  <span className="text-xs text-zinc-500">
+                    {sessionMode === 'practice'
+                      ? 'Shows move direction arrow so you can learn the line'
+                      : 'Plays from memory with hints available on demand'}
+                  </span>
+                </div>
+
                 {/* Drill Status & Utility Bar */}
                 <div
                   className={`flex flex-wrap items-center justify-between gap-2 border rounded-lg px-3.5 py-2.5 transition-colors ${
@@ -603,7 +683,8 @@ export default function App() {
                   orientation={boardOrientation}
                   lastMove={drill.lastMove}
                   locked={boardLocked}
-                  hintSquares={drill.hintSquares}
+                  hintSquares={activeHintSquares}
+                  arrowMove={activeArrowMove}
                   wrongSquare={drill.wrongSquare}
                   onMakeMove={handleMakeMove}
                 />
@@ -618,6 +699,11 @@ export default function App() {
                     type="button"
                     onClick={handleHint}
                     disabled={!canHint}
+                    title={
+                      sessionMode === 'practice'
+                        ? 'Direction is shown automatically in Practice mode'
+                        : 'Show the next move'
+                    }
                     className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold text-zinc-800 bg-[#F7F6F2] hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#D8D5CB] rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
                   >
                     <Lightbulb className="w-4 h-4 text-amber-600" aria-hidden="true" />
