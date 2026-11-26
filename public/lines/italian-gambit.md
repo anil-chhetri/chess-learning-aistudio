@@ -8,7 +8,7 @@ tags: [e4, e5, gambit, italian-game, giuoco-piano]
 ## Notes
 White plays an immediate `4. d4` in the Giuoco Piano to blast open central files and diagonals before Black can castle. You sacrifice a pawn for rapid development, open lines against `f7`, and concrete tactical threats, aiming to convert the initiative into a winning attack or superior endgame structure.
 
-## Main Line: 4...exd4 5. O-O (Scotch Gambit Transposition)
+## Scotch Gambit Transposition
 
 eco: C50
 playerColor: white
