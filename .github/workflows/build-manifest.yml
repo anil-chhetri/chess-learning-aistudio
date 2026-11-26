@@ -2,7 +2,7 @@ name: Build Opening Manifest
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - 'public/lines/**'
   workflow_dispatch:

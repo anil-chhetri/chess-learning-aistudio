@@ -6,22 +6,25 @@ import { generateManifestData } from '../scripts/build-manifest.mjs';
 import { loadOpeningsFromManifest } from '../src/lib/loader.ts';
 
 describe('Phase 2: Manifest & Content Pipeline Loader', () => {
-  it('1. generateManifestData matches public/manifest.json and includes all 3 sample openings', () => {
+  it('1. generateManifestData matches public/manifest.json and includes core sample openings', () => {
     const linesDir = path.resolve(process.cwd(), 'public/lines');
     const manifestPath = path.resolve(process.cwd(), 'public/manifest.json');
     const generated = generateManifestData(linesDir);
     const onDisk = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
     assert.deepEqual(generated, onDisk);
-    assert.deepEqual(generated.files, [
-      'lines/kings-indian.md',
-      'lines/queens-gambit.md',
-      'lines/sicilian-defense.md',
-    ]);
+    assert.ok(generated.files.length >= 3);
+    assert.ok(generated.files.includes('lines/kings-indian.md'));
+    assert.ok(generated.files.includes('lines/queens-gambit.md'));
+    assert.ok(generated.files.includes('lines/sicilian-defense.md'));
+    assert.deepEqual([...generated.files], [...generated.files].sort());
   });
 
-  it('2. loadOpeningsFromManifest fetches manifest.json and all 3 openings with cache: no-store', async () => {
+  it('2. loadOpeningsFromManifest fetches manifest.json and all listed openings with cache: no-store', async () => {
     const publicDir = path.resolve(process.cwd(), 'public');
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(publicDir, 'manifest.json'), 'utf8'),
+    );
     const fetchCalls = [];
 
     const mockFetch = async (input, init) => {
@@ -46,11 +49,11 @@ describe('Phase 2: Manifest & Content Pipeline Loader', () => {
 
     const result = await loadOpeningsFromManifest(mockFetch);
     assert.deepEqual(result.errors, []);
-    assert.equal(result.openings.length, 3);
-    assert.deepEqual(
-      result.openings.map((o) => o.parsed.title),
-      ["King's Indian Defense", "Queen's Gambit", 'Sicilian Defense'],
-    );
+    assert.equal(result.openings.length, manifest.files.length);
+    const loadedTitles = result.openings.map((o) => o.parsed.title);
+    assert.ok(loadedTitles.includes("King's Indian Defense"));
+    assert.ok(loadedTitles.includes("Queen's Gambit"));
+    assert.ok(loadedTitles.includes('Sicilian Defense'));
     assert.ok(fetchCalls.every((c) => c.cache === 'no-store'));
   });
 

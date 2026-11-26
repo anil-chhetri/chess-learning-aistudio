@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -34,17 +34,17 @@ jobs:
             npm install --legacy-peer-deps --no-audit --no-fund
           fi
 
-      - name: Typecheck
-        run: npm run lint
-
-      - name: Run unit tests
-        run: npm test
-
       - name: Generate manifest
         run: npm run build-manifest
 
       - name: Validate opening Markdown files
         run: npm run validate-content
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm test
 
       - name: Build static dist
         run: npm run build
