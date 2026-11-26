@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Chess, type Move, type PieceSymbol, type Square } from 'chess.js';
+import type { HintSquares } from '../lib/drill.ts';
 import type { PlayerColor } from '../lib/parser.ts';
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
@@ -25,6 +26,9 @@ interface ChessBoardProps {
   fen: string;
   orientation: PlayerColor;
   lastMove: { from: Square; to: Square } | null;
+  locked?: boolean;
+  hintSquares?: HintSquares | null;
+  wrongSquare?: Square | null;
   onMakeMove: (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => void;
 }
 
@@ -42,17 +46,20 @@ export function ChessBoard({
   fen,
   orientation,
   lastMove,
+  locked = false,
+  hintSquares = null,
+  wrongSquare = null,
   onMakeMove,
 }: ChessBoardProps) {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const squareRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  // Reset transient selection whenever FEN changes externally (e.g. reset, undo, variation load)
+  // Reset transient selection whenever FEN or lock state changes
   useEffect(() => {
     setSelectedSquare(null);
     setPendingPromotion(null);
-  }, [fen]);
+  }, [fen, locked]);
 
   const chess = useMemo(() => {
     try {
@@ -66,7 +73,7 @@ export function ChessBoard({
   const inCheck = chess.inCheck();
 
   const legalMovesForSelected = useMemo(() => {
-    if (!selectedSquare) return new Map<Square, Move[]>();
+    if (!selectedSquare || locked) return new Map<Square, Move[]>();
     const moves = chess.moves({ square: selectedSquare, verbose: true });
     const map = new Map<Square, Move[]>();
     for (const move of moves) {
@@ -75,7 +82,7 @@ export function ChessBoard({
       map.set(move.to, existing);
     }
     return map;
-  }, [chess, selectedSquare]);
+  }, [chess, selectedSquare, locked]);
 
   const displayedFiles = useMemo(
     () => (orientation === 'white' ? [...FILES] : [...FILES].reverse()),
@@ -118,8 +125,7 @@ export function ChessBoard({
   }, [chess, displayedFiles, displayedRanks]);
 
   const handleSquareClick = (square: Square) => {
-    if (pendingPromotion) return;
-    if (chess.isGameOver()) return;
+    if (locked || pendingPromotion || chess.isGameOver()) return;
 
     const targetMoves = legalMovesForSelected.get(square);
     if (selectedSquare && targetMoves && targetMoves.length > 0) {
@@ -147,7 +153,6 @@ export function ChessBoard({
       return;
     }
 
-    // Illegal square click: clear selection and do nothing else
     setSelectedSquare(null);
   };
 
@@ -181,7 +186,10 @@ export function ChessBoard({
       <div
         role="grid"
         aria-label="Chessboard"
-        className="grid grid-cols-8 grid-rows-8 w-full aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C]"
+        aria-disabled={locked || undefined}
+        className={`grid grid-cols-8 grid-rows-8 w-full aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C] ${
+          locked ? 'cursor-wait' : 'cursor-pointer'
+        }`}
       >
         {boardSquares.map(({ square, fileIndex, rankIndex, isLight, piece }) => {
           const isSelected = selectedSquare === square;
@@ -196,6 +204,9 @@ export function ChessBoard({
             (lastMove.from === square || lastMove.to === square);
           const isCheckedKing =
             inCheck && piece?.type === 'k' && piece.color === turn;
+          const isHintFrom = hintSquares?.from === square;
+          const isHintTo = hintSquares?.to === square;
+          const isWrongFlash = wrongSquare === square;
 
           const showRankLabel = fileIndex === 0;
           const showFileLabel = rankIndex === 7;
@@ -218,7 +229,9 @@ export function ChessBoard({
             ? ', capture available'
             : isLegalTarget
               ? ', legal move'
-              : '';
+              : isHintFrom || isHintTo
+                ? ', hint square'
+                : '';
 
           return (
             <button
@@ -238,6 +251,26 @@ export function ChessBoard({
                 <span
                   aria-hidden="true"
                   className="absolute inset-0 bg-[radial-gradient(circle,rgba(220,38,38,0.72)_0%,rgba(220,38,38,0.28)_55%,transparent_75%)] pointer-events-none"
+                />
+              )}
+
+              {/* Wrong Move Flash */}
+              {isWrongFlash && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0 z-20 bg-red-600/45 ring-3 ring-inset ring-red-700 pointer-events-none"
+                />
+              )}
+
+              {/* Hint Highlights (Source & Target) */}
+              {(isHintFrom || isHintTo) && (
+                <span
+                  aria-hidden="true"
+                  className={`absolute inset-0 z-15 pointer-events-none ${
+                    isHintFrom
+                      ? 'bg-amber-400/35 ring-3 ring-inset ring-amber-600'
+                      : 'bg-sky-400/30 ring-3 ring-inset ring-sky-600'
+                  }`}
                 />
               )}
 
@@ -279,7 +312,15 @@ export function ChessBoard({
                 />
               )}
 
-              {/* Legal Quiet Move Indicator (green dot + subtle border ring for non-hue accessibility) */}
+              {/* Hint Target Dot when destination square is empty */}
+              {isHintTo && !piece && !isLegalTarget && (
+                <span
+                  aria-hidden="true"
+                  className="relative z-20 w-[26%] h-[26%] rounded-full bg-sky-600/80 ring-2 ring-white/70 pointer-events-none"
+                />
+              )}
+
+              {/* Legal Quiet Move Indicator */}
               {isLegalTarget && !isCaptureTarget && (
                 <span
                   aria-hidden="true"
@@ -287,7 +328,7 @@ export function ChessBoard({
                 />
               )}
 
-              {/* Legal Capture Indicator (red outer ring + corner visual emphasis) */}
+              {/* Legal Capture Indicator */}
               {isCaptureTarget && (
                 <span
                   aria-hidden="true"

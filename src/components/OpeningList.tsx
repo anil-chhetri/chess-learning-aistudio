@@ -1,4 +1,5 @@
-import { BookOpen, ChevronDown, ChevronRight, Play } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { getVariationKey } from '../lib/drill.ts';
 import type { LoadedOpeningEntry } from '../lib/loader.ts';
 import type { ParsedVariation } from '../lib/parser.ts';
 
@@ -7,9 +8,9 @@ interface OpeningListProps {
   openings: LoadedOpeningEntry[];
   selectedOpeningPath: string | null;
   selectedVariationName: string | null;
+  mistakesByVariation: Record<string, number>;
   onSelectOpening: (openingPath: string) => void;
-  onSelectVariation: (openingPath: string, variation: ParsedVariation) => void;
-  onLoadVariationOnBoard: (variation: ParsedVariation) => void;
+  onStartVariationDrill: (openingPath: string, variation: ParsedVariation) => void;
 }
 
 export function OpeningList({
@@ -17,9 +18,9 @@ export function OpeningList({
   openings,
   selectedOpeningPath,
   selectedVariationName,
+  mistakesByVariation,
   onSelectOpening,
-  onSelectVariation,
-  onLoadVariationOnBoard,
+  onStartVariationDrill,
 }: OpeningListProps) {
   return (
     <aside
@@ -101,65 +102,59 @@ export function OpeningList({
                   </div>
                 </button>
 
-                {/* Variations inside active opening */}
+                {/* Variation Cards inside active opening */}
                 {isOpeningSelected && (
                   <div className="mt-2 pl-2 space-y-1.5">
                     {parsed.variations.map((variation) => {
                       const isVarSelected =
                         variation.name === selectedVariationName;
-                      return (
-                        <div
-                          key={variation.name}
-                          className="rounded-md transition-colors"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => onSelectVariation(entry.path, variation)}
-                            aria-current={isVarSelected ? 'true' : undefined}
-                            className={`w-full text-left rounded-md px-2.5 py-2 transition-colors focus-visible:outline-2 focus-visible:outline-emerald-800 ${
-                              isVarSelected
-                                ? 'bg-[#EBF2ED] text-zinc-950'
-                                : 'hover:bg-[#F7F6F2] text-zinc-800'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs sm:text-sm font-medium truncate">
-                                {variation.name}
-                              </span>
-                              {!variation.valid && (
-                                <span className="text-xs font-medium text-red-700 shrink-0">
-                                  Invalid
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 text-xs text-zinc-500 mt-0.5">
-                              <span className="font-mono-tabular">
-                                {variation.eco || 'No ECO'}
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <span className="capitalize">
-                                {variation.playerColor || 'unset'}
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <span className="font-mono-tabular">
-                                {variation.moves.length} plies
-                              </span>
-                            </div>
-                          </button>
+                      const varKey = getVariationKey(entry.path, variation.name);
+                      const recordedMistakes = mistakesByVariation[varKey] ?? 0;
 
-                          {isVarSelected && variation.valid && (
-                            <div className="mt-1.5 px-2.5 pb-1">
-                              <button
-                                type="button"
-                                onClick={() => onLoadVariationOnBoard(variation)}
-                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#1B5E3A] hover:bg-[#154A2D] rounded-md transition-colors whitespace-nowrap shrink-0 min-h-[36px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B5E3A]"
-                              >
-                                <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                                Load Line on Board
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                      return (
+                        <button
+                          key={variation.name}
+                          type="button"
+                          disabled={!variation.valid}
+                          onClick={() =>
+                            onStartVariationDrill(entry.path, variation)
+                          }
+                          aria-current={isVarSelected ? 'true' : undefined}
+                          className={`w-full text-left rounded-md px-3 py-2.5 border transition-colors min-h-[44px] focus-visible:outline-2 focus-visible:outline-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed ${
+                            isVarSelected
+                              ? 'bg-[#EBF2ED] border-[#B6D0BF] text-zinc-950'
+                              : 'bg-[#FAF9F6] border-[#ECEAE3] hover:bg-[#F1EFE9] text-zinc-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs sm:text-sm font-semibold truncate">
+                              {variation.name}
+                            </span>
+                            <span className="text-[11px] font-mono-tabular font-medium text-zinc-600 shrink-0 capitalize">
+                              {variation.valid
+                                ? variation.playerColor || 'white'
+                                : 'Invalid'}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500 mt-1">
+                            <span className="font-mono-tabular">
+                              {variation.eco || 'No ECO'}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono-tabular">
+                              {variation.moves.length} plies
+                            </span>
+                            {recordedMistakes > 0 && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="font-mono-tabular text-amber-800">
+                                  {recordedMistakes}{' '}
+                                  {recordedMistakes === 1 ? 'mistake' : 'mistakes'}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -173,8 +168,8 @@ export function OpeningList({
       <p className="text-xs text-zinc-500 leading-relaxed flex items-start gap-2 mt-auto pt-1">
         <BookOpen className="w-3.5 h-3.5 mt-0.5 shrink-0 text-zinc-400" aria-hidden="true" />
         <span>
-          Openings are loaded dynamically from manifest.json. Pick any opening
-          and variation to inspect notes or replay its moves.
+          Pick an opening, then select any variation card to start drilling
+          that exact line.
         </span>
       </p>
     </aside>

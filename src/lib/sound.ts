@@ -13,7 +13,7 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-export type MoveSoundType = 'move' | 'capture' | 'check' | 'end';
+export type MoveSoundType = 'move' | 'capture' | 'check' | 'end' | 'wrong';
 
 export function playMoveSound(type: MoveSoundType, muted: boolean): void {
   if (muted) return;
@@ -55,6 +55,16 @@ export function playMoveSound(type: MoveSoundType, muted: boolean): void {
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.14);
+    } else if (type === 'wrong') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.linearRampToValueAtTime(110, now + 0.14);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.16);
     } else {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(440, now);

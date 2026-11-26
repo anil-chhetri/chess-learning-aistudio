@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Chess, type Square } from 'chess.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Square } from 'chess.js';
 import {
   AlertCircle,
   ArrowUpDown,
+  CheckCircle2,
+  Layers,
+  Lightbulb,
+  Repeat,
   RotateCcw,
-  Undo2,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -14,82 +17,77 @@ import { NotesPanel } from './components/NotesPanel.tsx';
 import { OpeningList } from './components/OpeningList.tsx';
 import { ParserLab } from './components/ParserLab.tsx';
 import {
+  applyOpponentDrillMove,
+  applyUserDrillMove,
+  computeHintSquares,
+  createIdleDrillState,
+  DRILL_STATES,
+  getNextPracticeVariation,
+  getVariationKey,
+  LOOP_DELAY_MS,
+  OPPONENT_DELAY_MS,
+  startVariationDrill,
+  WRONG_FLASH_MS,
+  type DrillState,
+} from './lib/drill.ts';
+import {
   loadOpeningsFromManifest,
   type LoadedOpeningEntry,
 } from './lib/loader.ts';
 import type { ParsedVariation, PlayerColor } from './lib/parser.ts';
 import { playMoveSound } from './lib/sound.ts';
+import {
+  loadTrainerProgress,
+  saveLastSelection,
+  saveMistakesByVariation,
+} from './lib/storage.ts';
 
 type AppTab = 'board' | 'parser' | 'spec';
 
-interface BoardState {
-  fen: string;
-  history: string[];
-  lastMove: { from: Square; to: Square } | null;
-  orientation: PlayerColor;
-  activeLineLabel: string | null;
-}
-
-const INITIAL_FEN = new Chess().fen();
-
-function createInitialBoardState(orientation: PlayerColor = 'white'): BoardState {
-  return {
-    fen: INITIAL_FEN,
-    history: [],
-    lastMove: null,
-    orientation,
-    activeLineLabel: null,
-  };
-}
-
-function getGameStatusInfo(fen: string): {
-  turnLabel: string;
-  turnColor: 'w' | 'b';
-  detailLabel: string | null;
-  isGameOver: boolean;
+function getDrillStatusBanner(
+  drill: DrillState,
+  practiceAllComplete: boolean,
+): {
+  label: string;
+  tone: 'neutral' | 'turn' | 'wait' | 'wrong' | 'complete';
+  colorSquare: 'w' | 'b';
 } {
-  const chess = new Chess(fen);
-  const turnColor = chess.turn();
-  const sideName = turnColor === 'w' ? 'White' : 'Black';
+  const variationColor = drill.variation?.playerColor === 'black' ? 'b' : 'w';
 
-  if (chess.isCheckmate()) {
-    const winner = turnColor === 'w' ? 'Black' : 'White';
+  if (drill.wrongSquare) {
     return {
-      turnLabel: `Checkmate · ${winner} wins`,
-      turnColor,
-      detailLabel: 'Game over',
-      isGameOver: true,
+      label: 'Not the opening move — try again or use Hint',
+      tone: 'wrong',
+      colorSquare: variationColor,
     };
   }
-  if (chess.isStalemate()) {
+  if (drill.status === DRILL_STATES.USER_TURN) {
     return {
-      turnLabel: 'Stalemate · Draw',
-      turnColor,
-      detailLabel: 'Game over',
-      isGameOver: true,
+      label: `Your turn (${variationColor === 'w' ? 'White' : 'Black'})`,
+      tone: 'turn',
+      colorSquare: variationColor,
     };
   }
-  if (chess.isDraw()) {
+  if (drill.status === DRILL_STATES.OPPONENT_TURN) {
     return {
-      turnLabel: 'Draw',
-      turnColor,
-      detailLabel: 'Insufficient material or repetition',
-      isGameOver: true,
+      label: 'Opponent playing reply...',
+      tone: 'wait',
+      colorSquare: variationColor === 'w' ? 'b' : 'w',
     };
   }
-  if (chess.inCheck()) {
+  if (drill.status === DRILL_STATES.VARIATION_COMPLETE) {
     return {
-      turnLabel: `${sideName} to move · Check`,
-      turnColor,
-      detailLabel: null,
-      isGameOver: false,
+      label: practiceAllComplete
+        ? 'All variations complete!'
+        : `Line complete · ${drill.mistakes} ${drill.mistakes === 1 ? 'mistake' : 'mistakes'}`,
+      tone: 'complete',
+      colorSquare: variationColor,
     };
   }
   return {
-    turnLabel: `${sideName} to move`,
-    turnColor,
-    detailLabel: null,
-    isGameOver: false,
+    label: 'Select a variation to begin drilling',
+    tone: 'neutral',
+    colorSquare: 'w',
   };
 }
 
@@ -101,14 +99,53 @@ export default function App() {
   const [selectedOpeningPath, setSelectedOpeningPath] = useState<string | null>(
     null,
   );
-  const [selectedVariationName, setSelectedVariationName] = useState<string | null>(
-    null,
-  );
-  const [board, setBoard] = useState<BoardState>(() =>
-    createInitialBoardState('white'),
-  );
+  const [drill, setDrill] = useState<DrillState>(() => createIdleDrillState());
+  const [orientationOverride, setOrientationOverride] =
+    useState<PlayerColor | null>(null);
+  const [autoLoop, setAutoLoop] = useState(false);
+  const [practiceAll, setPracticeAll] = useState(false);
+  const [practiceAllComplete, setPracticeAllComplete] = useState(false);
+  const [mistakesByVariation, setMistakesByVariation] = useState<
+    Record<string, number>
+  >(() => loadTrainerProgress().mistakesByVariation);
   const [muted, setMuted] = useState(false);
 
+  const opponentTimerRef = useRef<number | null>(null);
+  const loopTimerRef = useRef<number | null>(null);
+  const wrongFlashTimerRef = useRef<number | null>(null);
+
+  const clearPendingTimers = useCallback(() => {
+    if (opponentTimerRef.current !== null) {
+      window.clearTimeout(opponentTimerRef.current);
+      opponentTimerRef.current = null;
+    }
+    if (loopTimerRef.current !== null) {
+      window.clearTimeout(loopTimerRef.current);
+      loopTimerRef.current = null;
+    }
+    if (wrongFlashTimerRef.current !== null) {
+      window.clearTimeout(wrongFlashTimerRef.current);
+      wrongFlashTimerRef.current = null;
+    }
+  }, []);
+
+  const beginVariationDrill = useCallback(
+    (
+      openingPath: string,
+      variation: ParsedVariation,
+      initialMistakes = 0,
+    ) => {
+      clearPendingTimers();
+      setPracticeAllComplete(false);
+      setOrientationOverride(null);
+      setSelectedOpeningPath(openingPath);
+      saveLastSelection(openingPath, variation.name);
+      setDrill(startVariationDrill(openingPath, variation, initialMistakes));
+    },
+    [clearPendingTimers],
+  );
+
+  // Hydrate library + restore localStorage progress on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -120,94 +157,219 @@ export default function App() {
       setOpenings(result.openings);
       setLoadErrors(result.errors);
 
-      const firstEntry = result.openings[0] ?? null;
-      if (firstEntry) {
-        setSelectedOpeningPath(firstEntry.path);
-        const firstValid =
-          firstEntry.parsed.variations.find((v) => v.valid) ?? null;
-        setSelectedVariationName(firstValid?.name ?? null);
+      const saved = loadTrainerProgress();
+      setMistakesByVariation(saved.mistakesByVariation);
+
+      const matchedEntry =
+        result.openings.find((o) => o.path === saved.lastOpening) ??
+        result.openings[0] ??
+        null;
+
+      if (matchedEntry) {
+        setSelectedOpeningPath(matchedEntry.path);
+        const matchedVariation =
+          matchedEntry.parsed.variations.find(
+            (v) => v.valid && v.name === saved.lastVariation,
+          ) ??
+          matchedEntry.parsed.variations.find((v) => v.valid) ??
+          null;
+
+        if (matchedVariation) {
+          const varKey = getVariationKey(
+            matchedEntry.path,
+            matchedVariation.name,
+          );
+          const restoredMistakes = saved.mistakesByVariation[varKey] ?? 0;
+          saveLastSelection(matchedEntry.path, matchedVariation.name);
+          setDrill(
+            startVariationDrill(
+              matchedEntry.path,
+              matchedVariation,
+              restoredMistakes,
+            ),
+          );
+        }
       }
+
       setLoadingOpenings(false);
     }
 
     hydrateLibrary();
     return () => {
       cancelled = true;
+      clearPendingTimers();
     };
-  }, []);
+  }, [clearPendingTimers]);
+
+  // Opponent auto-play after 700ms when status === OPPONENT_TURN
+  useEffect(() => {
+    if (drill.status !== DRILL_STATES.OPPONENT_TURN) return;
+
+    opponentTimerRef.current = window.setTimeout(() => {
+      opponentTimerRef.current = null;
+      setDrill((prev) => {
+        const outcome = applyOpponentDrillMove(prev);
+        if (outcome.soundType) {
+          playMoveSound(outcome.soundType, muted);
+        }
+        return outcome.state;
+      });
+    }, OPPONENT_DELAY_MS);
+
+    return () => {
+      if (opponentTimerRef.current !== null) {
+        window.clearTimeout(opponentTimerRef.current);
+        opponentTimerRef.current = null;
+      }
+    };
+  }, [drill.status, drill.drillIndex, drill.variation?.name, muted]);
+
+  // Auto-Loop or Practice All transition after 1500ms on VARIATION_COMPLETE
+  useEffect(() => {
+    if (drill.status !== DRILL_STATES.VARIATION_COMPLETE || !drill.variation) {
+      return;
+    }
+    if (!autoLoop && !practiceAll) return;
+
+    loopTimerRef.current = window.setTimeout(() => {
+      loopTimerRef.current = null;
+
+      if (autoLoop && drill.openingPath && drill.variation) {
+        const varKey = getVariationKey(drill.openingPath, drill.variation.name);
+        setMistakesByVariation((prev) => {
+          const next = { ...prev, [varKey]: 0 };
+          saveMistakesByVariation(next);
+          return next;
+        });
+        beginVariationDrill(drill.openingPath, drill.variation, 0);
+        return;
+      }
+
+      if (practiceAll && drill.openingPath && drill.variation) {
+        const activeEntry = openings.find((o) => o.path === drill.openingPath);
+        const nextVar = activeEntry
+          ? getNextPracticeVariation(
+              activeEntry.parsed.variations,
+              drill.variation.name,
+            )
+          : null;
+
+        if (nextVar) {
+          const nextKey = getVariationKey(drill.openingPath, nextVar.name);
+          setMistakesByVariation((prev) => {
+            const next = { ...prev, [nextKey]: 0 };
+            saveMistakesByVariation(next);
+            return next;
+          });
+          beginVariationDrill(drill.openingPath, nextVar, 0);
+        } else {
+          setPracticeAllComplete(true);
+          setPracticeAll(false);
+        }
+      }
+    }, LOOP_DELAY_MS);
+
+    return () => {
+      if (loopTimerRef.current !== null) {
+        window.clearTimeout(loopTimerRef.current);
+        loopTimerRef.current = null;
+      }
+    };
+  }, [
+    drill.status,
+    drill.openingPath,
+    drill.variation,
+    autoLoop,
+    practiceAll,
+    openings,
+    beginVariationDrill,
+  ]);
 
   const selectedOpeningEntry =
     openings.find((entry) => entry.path === selectedOpeningPath) ?? null;
   const selectedOpening = selectedOpeningEntry?.parsed ?? null;
-  const selectedVariation =
-    selectedOpening?.variations.find((v) => v.name === selectedVariationName) ??
-    null;
+  const activeVariation = drill.variation;
+  const boardOrientation: PlayerColor =
+    orientationOverride ??
+    (activeVariation?.playerColor === 'black' ? 'black' : 'white');
 
   const handleMakeMove = useCallback(
     (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => {
-      setBoard((prev) => {
-        const chess = new Chess(prev.fen);
-        try {
-          const move = chess.move({
-            from,
-            to,
-            promotion: promotion ?? 'q',
-          });
-          if (!move) return prev;
+      setDrill((prev) => {
+        const outcome = applyUserDrillMove(prev, from, to, promotion);
+        if (outcome.result === 'ignored') return prev;
 
-          if (chess.isGameOver()) {
-            playMoveSound('end', muted);
-          } else if (chess.inCheck()) {
-            playMoveSound('check', muted);
-          } else if (move.isCapture() || move.isEnPassant()) {
-            playMoveSound('capture', muted);
-          } else {
-            playMoveSound('move', muted);
-          }
-
-          return {
-            ...prev,
-            fen: chess.fen(),
-            history: [...prev.history, move.san],
-            lastMove: { from: move.from, to: move.to },
-          };
-        } catch {
-          return prev;
+        if (outcome.soundType) {
+          playMoveSound(outcome.soundType, muted);
         }
+
+        if (outcome.result === 'wrong' && prev.openingPath && prev.variation) {
+          const varKey = getVariationKey(prev.openingPath, prev.variation.name);
+          const updatedMistakes = outcome.state.mistakes;
+          setMistakesByVariation((prevMap) => {
+            const nextMap = { ...prevMap, [varKey]: updatedMistakes };
+            saveMistakesByVariation(nextMap);
+            return nextMap;
+          });
+
+          if (wrongFlashTimerRef.current !== null) {
+            window.clearTimeout(wrongFlashTimerRef.current);
+          }
+          wrongFlashTimerRef.current = window.setTimeout(() => {
+            wrongFlashTimerRef.current = null;
+            setDrill((curr) =>
+              curr.wrongSquare ? { ...curr, wrongSquare: null } : curr,
+            );
+          }, WRONG_FLASH_MS);
+        }
+
+        return outcome.state;
       });
     },
     [muted],
   );
 
-  const handleUndoMove = useCallback(() => {
-    setBoard((prev) => {
-      if (prev.history.length === 0) return prev;
-      const nextHistory = prev.history.slice(0, -1);
-      const replay = new Chess();
-      let lastMove: { from: Square; to: Square } | null = null;
-      for (const san of nextHistory) {
-        const applied = replay.move(san);
-        lastMove = { from: applied.from, to: applied.to };
-      }
-      return {
-        ...prev,
-        fen: replay.fen(),
-        history: nextHistory,
-        lastMove,
-      };
+  const handleHint = useCallback(() => {
+    setDrill((prev) => {
+      const hint = computeHintSquares(prev);
+      if (!hint) return prev;
+      return { ...prev, hintSquares: hint };
     });
   }, []);
 
-  const handleResetBoard = useCallback(() => {
-    setBoard((prev) => createInitialBoardState(prev.orientation));
+  const handleResetDrill = useCallback(() => {
     setActiveTab('board');
+    if (drill.openingPath && drill.variation) {
+      const varKey = getVariationKey(drill.openingPath, drill.variation.name);
+      setMistakesByVariation((prev) => {
+        const next = { ...prev, [varKey]: 0 };
+        saveMistakesByVariation(next);
+        return next;
+      });
+      beginVariationDrill(drill.openingPath, drill.variation, 0);
+    }
+  }, [drill.openingPath, drill.variation, beginVariationDrill]);
+
+  const handleToggleAutoLoop = useCallback(() => {
+    setAutoLoop((prev) => {
+      const next = !prev;
+      if (next) {
+        setPracticeAll(false);
+        setPracticeAllComplete(false);
+      }
+      return next;
+    });
   }, []);
 
-  const handleFlipBoard = useCallback(() => {
-    setBoard((prev) => ({
-      ...prev,
-      orientation: prev.orientation === 'white' ? 'black' : 'white',
-    }));
+  const handleTogglePracticeAll = useCallback(() => {
+    setPracticeAll((prev) => {
+      const next = !prev;
+      if (next) {
+        setAutoLoop(false);
+        setPracticeAllComplete(false);
+      }
+      return next;
+    });
   }, []);
 
   const handleSelectOpening = useCallback(
@@ -215,45 +377,35 @@ export default function App() {
       setSelectedOpeningPath(openingPath);
       const entry = openings.find((item) => item.path === openingPath);
       const firstValid = entry?.parsed.variations.find((v) => v.valid) ?? null;
-      setSelectedVariationName(firstValid?.name ?? null);
-    },
-    [openings],
-  );
-
-  const handleSelectVariation = useCallback(
-    (openingPath: string, variation: ParsedVariation) => {
-      setSelectedOpeningPath(openingPath);
-      setSelectedVariationName(variation.name);
-    },
-    [],
-  );
-
-  const handleLoadVariationOnBoard = useCallback((variation: ParsedVariation) => {
-    if (!variation.valid || variation.moves.length === 0) return;
-    const replay = new Chess();
-    const played: string[] = [];
-    let lastMove: { from: Square; to: Square } | null = null;
-
-    for (const san of variation.moves) {
-      try {
-        const m = replay.move(san);
-        played.push(m.san);
-        lastMove = { from: m.from, to: m.to };
-      } catch {
-        break;
+      if (firstValid) {
+        const varKey = getVariationKey(openingPath, firstValid.name);
+        const restoredMistakes = mistakesByVariation[varKey] ?? 0;
+        beginVariationDrill(openingPath, firstValid, restoredMistakes);
       }
-    }
+    },
+    [openings, mistakesByVariation, beginVariationDrill],
+  );
 
-    setBoard({
-      fen: replay.fen(),
-      history: played,
-      lastMove,
-      orientation: variation.playerColor === 'black' ? 'black' : 'white',
-      activeLineLabel: variation.name,
+  const handleStartVariationDrill = useCallback(
+    (openingPath: string, variation: ParsedVariation) => {
+      const varKey = getVariationKey(openingPath, variation.name);
+      const restoredMistakes = mistakesByVariation[varKey] ?? 0;
+      beginVariationDrill(openingPath, variation, restoredMistakes);
+    },
+    [mistakesByVariation, beginVariationDrill],
+  );
+
+  const handleFlipBoard = useCallback(() => {
+    setOrientationOverride((prev) => {
+      const current = prev ?? (activeVariation?.playerColor === 'black' ? 'black' : 'white');
+      return current === 'white' ? 'black' : 'white';
     });
-  }, []);
+  }, [activeVariation]);
 
-  const status = getGameStatusInfo(board.fen);
+  const banner = getDrillStatusBanner(drill, practiceAllComplete);
+  const boardLocked = drill.status !== DRILL_STATES.USER_TURN;
+  const canHint = drill.status === DRILL_STATES.USER_TURN;
+  const canReset = Boolean(drill.variation);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F5F4F0] text-zinc-900 overflow-x-hidden">
@@ -313,10 +465,11 @@ export default function App() {
           <div className="shrink-0">
             <button
               type="button"
-              onClick={handleResetBoard}
-              className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1B5E3A] hover:bg-[#154A2D] rounded-md transition-colors whitespace-nowrap shrink-0 min-h-[40px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B5E3A]"
+              onClick={handleResetDrill}
+              disabled={!canReset}
+              className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1B5E3A] hover:bg-[#154A2D] disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 min-h-[40px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B5E3A]"
             >
-              Reset Board
+              Reset Drill
             </button>
           </div>
         </div>
@@ -385,35 +538,40 @@ export default function App() {
           <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[300px_minmax(0,1fr)_340px] 2xl:grid-cols-[340px_minmax(0,1fr)_380px] gap-5 lg:gap-6 items-start xl:items-stretch">
             {/* Board Stage */}
             <section
-              aria-label="Interactive Chessboard"
+              aria-label="Interactive Drill Chessboard"
               className="min-w-0 md:col-start-1 md:row-start-1 md:row-span-2 xl:col-start-2 xl:row-start-1 xl:row-span-1 flex flex-col items-center justify-start xl:justify-center bg-white border border-[#E2E0D8] rounded-lg p-3.5 sm:p-5 lg:p-6"
             >
               <div className="w-full max-w-[min(92vw,600px)] flex flex-col gap-3">
-                {/* Turn & Board Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-2 bg-[#F7F6F2] border border-[#E2E0D8] rounded-lg px-3.5 py-2.5">
+                {/* Drill Status & Utility Bar */}
+                <div
+                  className={`flex flex-wrap items-center justify-between gap-2 border rounded-lg px-3.5 py-2.5 transition-colors ${
+                    banner.tone === 'wrong'
+                      ? 'bg-red-50 border-red-300 text-red-900'
+                      : banner.tone === 'complete'
+                        ? 'bg-[#EBF2ED] border-[#9EC5AC] text-emerald-950'
+                        : 'bg-[#F7F6F2] border-[#E2E0D8] text-zinc-900'
+                  }`}
+                >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span
-                      aria-hidden="true"
-                      className={`w-4 h-4 rounded-sm border border-zinc-800 shrink-0 ${
-                        status.turnColor === 'w' ? 'bg-white' : 'bg-zinc-900'
-                      }`}
-                    />
-                    <span className="text-sm font-semibold text-zinc-900 truncate">
-                      {status.turnLabel}
+                    {banner.tone === 'complete' ? (
+                      <CheckCircle2
+                        className="w-4 h-4 text-[#1B5E3A] shrink-0"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className={`w-4 h-4 rounded-sm border border-zinc-800 shrink-0 ${
+                          banner.colorSquare === 'w' ? 'bg-white' : 'bg-zinc-900'
+                        }`}
+                      />
+                    )}
+                    <span className="text-sm font-semibold truncate">
+                      {banner.label}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleUndoMove}
-                      disabled={board.history.length === 0}
-                      aria-label="Undo last move"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-white hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#E2E0D8] rounded-md transition-colors whitespace-nowrap min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
-                    >
-                      <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      Undo
-                    </button>
                     <button
                       type="button"
                       onClick={handleFlipBoard}
@@ -436,33 +594,73 @@ export default function App() {
                         <Volume2 className="w-4 h-4" aria-hidden="true" />
                       )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={handleResetBoard}
-                      aria-label="Reset board to starting position"
-                      className="inline-flex items-center justify-center p-2 text-zinc-700 bg-white hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors min-h-[36px] min-w-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
-                    >
-                      <RotateCcw className="w-4 h-4" aria-hidden="true" />
-                    </button>
                   </div>
                 </div>
 
                 {/* Chessboard */}
                 <ChessBoard
-                  fen={board.fen}
-                  orientation={board.orientation}
-                  lastMove={board.lastMove}
+                  fen={drill.fen}
+                  orientation={boardOrientation}
+                  lastMove={drill.lastMove}
+                  locked={boardLocked}
+                  hintSquares={drill.hintSquares}
+                  wrongSquare={drill.wrongSquare}
                   onMakeMove={handleMakeMove}
                 />
 
-                {/* Quiet Board Legend */}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 px-1">
-                  <span>
-                    Click or tap a piece to highlight legal moves and captures.
-                  </span>
-                  <span className="font-mono-tabular">
-                    Orientation: {board.orientation === 'white' ? 'White' : 'Black'}
-                  </span>
+                {/* 4 Coaching Controls Only: Hint, Reset, Auto-Loop, Practice All */}
+                <div
+                  role="group"
+                  aria-label="Coaching controls"
+                  className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={handleHint}
+                    disabled={!canHint}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold text-zinc-800 bg-[#F7F6F2] hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#D8D5CB] rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
+                  >
+                    <Lightbulb className="w-4 h-4 text-amber-600" aria-hidden="true" />
+                    Hint
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetDrill}
+                    disabled={!canReset}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold text-zinc-800 bg-[#F7F6F2] hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#D8D5CB] rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
+                  >
+                    <RotateCcw className="w-4 h-4" aria-hidden="true" />
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={autoLoop}
+                    onClick={handleToggleAutoLoop}
+                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold border rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
+                      autoLoop
+                        ? 'bg-[#1B5E3A] text-white border-[#1B5E3A]'
+                        : 'bg-[#F7F6F2] text-zinc-800 border-[#D8D5CB] hover:bg-[#EDEAD9]'
+                    }`}
+                  >
+                    <Repeat className="w-4 h-4" aria-hidden="true" />
+                    Auto-Loop
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={practiceAll}
+                    onClick={handleTogglePracticeAll}
+                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold border rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
+                      practiceAll
+                        ? 'bg-[#1B5E3A] text-white border-[#1B5E3A]'
+                        : 'bg-[#F7F6F2] text-zinc-800 border-[#D8D5CB] hover:bg-[#EDEAD9]'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" aria-hidden="true" />
+                    Practice All
+                  </button>
                 </div>
               </div>
             </section>
@@ -473,10 +671,10 @@ export default function App() {
                 loading={loadingOpenings}
                 openings={openings}
                 selectedOpeningPath={selectedOpeningPath}
-                selectedVariationName={selectedVariationName}
+                selectedVariationName={activeVariation?.name ?? null}
+                mistakesByVariation={mistakesByVariation}
                 onSelectOpening={handleSelectOpening}
-                onSelectVariation={handleSelectVariation}
-                onLoadVariationOnBoard={handleLoadVariationOnBoard}
+                onStartVariationDrill={handleStartVariationDrill}
               />
             </div>
 
@@ -484,10 +682,12 @@ export default function App() {
             <div className="min-w-0 md:col-start-2 md:row-start-2 xl:col-start-3 xl:row-start-1">
               <NotesPanel
                 opening={selectedOpening}
-                selectedVariation={selectedVariation}
-                history={board.history}
-                fen={board.fen}
-                activeLineLabel={board.activeLineLabel}
+                selectedVariation={activeVariation}
+                drillStatus={drill.status}
+                drillIndex={drill.drillIndex}
+                mistakes={drill.mistakes}
+                history={drill.history}
+                fen={drill.fen}
               />
             </div>
           </div>
