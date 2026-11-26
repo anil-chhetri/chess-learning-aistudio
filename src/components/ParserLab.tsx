@@ -86,14 +86,16 @@ Notes without a moves fenced block.`,
 ];
 
 interface ParserLabProps {
-  initialMarkdown: string;
+  openings: Array<{ path: string; title: string; rawMarkdown: string }>;
 }
 
-export function ParserLab({ initialMarkdown }: ParserLabProps) {
+export function ParserLab({ openings }: ParserLabProps) {
   const [rawInput, setRawInput] = useState(
-    initialMarkdown || PRESET_CASES[0].markdown,
+    openings[0]?.rawMarkdown || PRESET_CASES[0].markdown,
   );
-  const [activePreset, setActivePreset] = useState<string>('live');
+  const [activePreset, setActivePreset] = useState<string>(
+    openings[0]?.path || PRESET_CASES[0].id,
+  );
 
   const parsed = useMemo(() => parseAndValidateOpening(rawInput), [rawInput]);
 
@@ -107,29 +109,30 @@ export function ParserLab({ initialMarkdown }: ParserLabProps) {
             </h2>
             <p className="text-sm text-zinc-600 mt-1">
               Test the pure single-pass state machine and chess.js move validator
-              against valid or malformed opening files.
+              against loaded files or malformed opening Markdown.
             </p>
           </div>
         </div>
 
         {/* Preset Test Buttons */}
         <div className="flex flex-wrap items-center gap-2 mt-4">
-          {initialMarkdown && (
+          {openings.map((item) => (
             <button
+              key={item.path}
               type="button"
               onClick={() => {
-                setRawInput(initialMarkdown);
-                setActivePreset('live');
+                setRawInput(item.rawMarkdown);
+                setActivePreset(item.path);
               }}
               className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
-                activePreset === 'live'
+                activePreset === item.path
                   ? 'bg-[#1B5E3A] text-white border-[#1B5E3A]'
                   : 'bg-[#F7F6F2] text-zinc-700 border-[#E2E0D8] hover:bg-[#EDEAD9]'
               }`}
             >
-              Loaded: Queen&apos;s Gambit
+              {item.title}
             </button>
-          )}
+          ))}
           {PRESET_CASES.map((preset) => (
             <button
               key={preset.id}

@@ -40,6 +40,9 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      - name: Generate manifest
+        run: npm run build-manifest
+
       - name: Validate opening Markdown files
         run: npm run validate-content
 

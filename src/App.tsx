@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Chess, type Square } from 'chess.js';
-import { ArrowUpDown, RotateCcw, Undo2, Volume2, VolumeX } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowUpDown,
+  RotateCcw,
+  Undo2,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { ChessBoard } from './components/ChessBoard.tsx';
 import { FormatSpecView } from './components/FormatSpecView.tsx';
 import { NotesPanel } from './components/NotesPanel.tsx';
 import { OpeningList } from './components/OpeningList.tsx';
 import { ParserLab } from './components/ParserLab.tsx';
-import type { ParsedOpening, ParsedVariation, PlayerColor } from './lib/parser.ts';
+import {
+  loadOpeningsFromManifest,
+  type LoadedOpeningEntry,
+} from './lib/loader.ts';
+import type { ParsedVariation, PlayerColor } from './lib/parser.ts';
 import { playMoveSound } from './lib/sound.ts';
-import { parseAndValidateOpening } from './lib/validate.ts';
 
 type AppTab = 'board' | 'parser' | 'spec';
 
@@ -85,67 +95,58 @@ function getGameStatusInfo(fen: string): {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('board');
-  const [loadingOpening, setLoadingOpening] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [rawMarkdown, setRawMarkdown] = useState('');
-  const [opening, setOpening] = useState<ParsedOpening | null>(null);
-  const [selectedVariationName, setSelectedVariationName] = useState<string | null>(null);
-  const [board, setBoard] = useState<BoardState>(() => createInitialBoardState('white'));
+  const [loadingOpenings, setLoadingOpenings] = useState(true);
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
+  const [openings, setOpenings] = useState<LoadedOpeningEntry[]>([]);
+  const [selectedOpeningPath, setSelectedOpeningPath] = useState<string | null>(
+    null,
+  );
+  const [selectedVariationName, setSelectedVariationName] = useState<string | null>(
+    null,
+  );
+  const [board, setBoard] = useState<BoardState>(() =>
+    createInitialBoardState('white'),
+  );
   const [muted, setMuted] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadInitialOpening() {
-      setLoadingOpening(true);
-      setLoadError(null);
-      try {
-        const response = await fetch('lines/queens-gambit.md', {
-          cache: 'no-store',
-        });
-        if (!response.ok) {
-          throw new Error(
-            `Could not fetch lines/queens-gambit.md (HTTP ${response.status}).`,
-          );
-        }
-        const text = await response.text();
-        if (cancelled) return;
-        const validated = parseAndValidateOpening(text);
-        setRawMarkdown(text);
-        setOpening(validated);
-        const firstValid = validated.variations.find((v) => v.valid) ?? null;
-        if (firstValid) {
-          setSelectedVariationName(firstValid.name);
-        }
-      } catch (err) {
-        if (cancelled) return;
-        setLoadError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to load opening Markdown file.',
-        );
-      } finally {
-        if (!cancelled) {
-          setLoadingOpening(false);
-        }
+    async function hydrateLibrary() {
+      setLoadingOpenings(true);
+      const result = await loadOpeningsFromManifest();
+      if (cancelled) return;
+
+      setOpenings(result.openings);
+      setLoadErrors(result.errors);
+
+      const firstEntry = result.openings[0] ?? null;
+      if (firstEntry) {
+        setSelectedOpeningPath(firstEntry.path);
+        const firstValid =
+          firstEntry.parsed.variations.find((v) => v.valid) ?? null;
+        setSelectedVariationName(firstValid?.name ?? null);
       }
+      setLoadingOpenings(false);
     }
 
-    loadInitialOpening();
+    hydrateLibrary();
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const selectedOpeningEntry =
+    openings.find((entry) => entry.path === selectedOpeningPath) ?? null;
+  const selectedOpening = selectedOpeningEntry?.parsed ?? null;
   const selectedVariation =
-    opening?.variations.find((v) => v.name === selectedVariationName) ?? null;
+    selectedOpening?.variations.find((v) => v.name === selectedVariationName) ??
+    null;
 
   const handleMakeMove = useCallback(
     (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => {
       setBoard((prev) => {
         const chess = new Chess(prev.fen);
-        // Re-apply full history when possible? Actually chess.js move from FEN works cleanly;
-        // we maintain prev.history as our single source of truth for algebraic SAN history.
         try {
           const move = chess.move({
             from,
@@ -209,9 +210,23 @@ export default function App() {
     }));
   }, []);
 
-  const handleSelectVariation = useCallback((variation: ParsedVariation) => {
-    setSelectedVariationName(variation.name);
-  }, []);
+  const handleSelectOpening = useCallback(
+    (openingPath: string) => {
+      setSelectedOpeningPath(openingPath);
+      const entry = openings.find((item) => item.path === openingPath);
+      const firstValid = entry?.parsed.variations.find((v) => v.valid) ?? null;
+      setSelectedVariationName(firstValid?.name ?? null);
+    },
+    [openings],
+  );
+
+  const handleSelectVariation = useCallback(
+    (openingPath: string, variation: ParsedVariation) => {
+      setSelectedOpeningPath(openingPath);
+      setSelectedVariationName(variation.name);
+    },
+    [],
+  );
 
   const handleLoadVariationOnBoard = useCallback((variation: ParsedVariation) => {
     if (!variation.valid || variation.moves.length === 0) return;
@@ -345,10 +360,30 @@ export default function App() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-[1680px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+      <main className="flex-1 max-w-[1680px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 space-y-5">
+        {/* Content Pipeline Error Banner */}
+        {loadErrors.length > 0 && (
+          <div
+            role="alert"
+            className="bg-red-50 border border-red-300 text-red-900 rounded-lg px-4 py-3 flex items-start gap-3"
+          >
+            <AlertCircle
+              className="w-5 h-5 text-red-700 shrink-0 mt-0.5"
+              aria-hidden="true"
+            />
+            <div className="text-sm space-y-1">
+              {loadErrors.map((errMsg, idx) => (
+                <p key={idx} className="font-medium">
+                  {errMsg}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'board' && (
           <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[300px_minmax(0,1fr)_340px] 2xl:grid-cols-[340px_minmax(0,1fr)_380px] gap-5 lg:gap-6 items-start xl:items-stretch">
-            {/* Board Stage: Top on mobile, left on tablet/split-pane, center on wide desktop */}
+            {/* Board Stage */}
             <section
               aria-label="Interactive Chessboard"
               className="min-w-0 md:col-start-1 md:row-start-1 md:row-span-2 xl:col-start-2 xl:row-start-1 xl:row-span-1 flex flex-col items-center justify-start xl:justify-center bg-white border border-[#E2E0D8] rounded-lg p-3.5 sm:p-5 lg:p-6"
@@ -432,22 +467,23 @@ export default function App() {
               </div>
             </section>
 
-            {/* Opening List: Below board on mobile, top-right on tablet/split-pane, left on desktop */}
+            {/* Opening List */}
             <div className="min-w-0 md:col-start-2 md:row-start-1 xl:col-start-1 xl:row-start-1">
               <OpeningList
-                loading={loadingOpening}
-                loadError={loadError}
-                opening={opening}
+                loading={loadingOpenings}
+                openings={openings}
+                selectedOpeningPath={selectedOpeningPath}
                 selectedVariationName={selectedVariationName}
+                onSelectOpening={handleSelectOpening}
                 onSelectVariation={handleSelectVariation}
                 onLoadVariationOnBoard={handleLoadVariationOnBoard}
               />
             </div>
 
-            {/* Notes & Move History: Bottom on mobile, bottom-right on tablet/split-pane, right on desktop */}
+            {/* Notes & Move History */}
             <div className="min-w-0 md:col-start-2 md:row-start-2 xl:col-start-3 xl:row-start-1">
               <NotesPanel
-                opening={opening}
+                opening={selectedOpening}
                 selectedVariation={selectedVariation}
                 history={board.history}
                 fen={board.fen}
@@ -457,7 +493,15 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'parser' && <ParserLab initialMarkdown={rawMarkdown} />}
+        {activeTab === 'parser' && (
+          <ParserLab
+            openings={openings.map((entry) => ({
+              path: entry.path,
+              title: entry.parsed.title || entry.path,
+              rawMarkdown: entry.rawMarkdown,
+            }))}
+          />
+        )}
 
         {activeTab === 'spec' && <FormatSpecView />}
       </main>
