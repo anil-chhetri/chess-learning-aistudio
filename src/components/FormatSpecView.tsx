@@ -46,7 +46,7 @@ const CONTRACT_RULES = [
 
 export function FormatSpecView() {
   return (
-    <section aria-label="Opening Format Specification" className="max-w-4xl mx-auto">
+    <section aria-label="Opening Format Specification" className="max-w-6xl mx-auto">
       <div className="bg-white border border-[#E2E0D8] rounded-lg p-6 sm:p-8 space-y-6">
         <div className="border-b border-[#ECEAE3] pb-4">
           <h2 className="text-2xl font-semibold text-zinc-900">

@@ -177,11 +177,11 @@ export function ChessBoard({
   };
 
   return (
-    <div className="relative select-none">
+    <div className="relative select-none w-full">
       <div
         role="grid"
         aria-label="Chessboard"
-        className="grid grid-cols-8 grid-rows-8 w-[min(92vw,560px)] aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C]"
+        className="grid grid-cols-8 grid-rows-8 w-full aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C]"
       >
         {boardSquares.map(({ square, fileIndex, rankIndex, isLight, piece }) => {
           const isSelected = selectedSquare === square;

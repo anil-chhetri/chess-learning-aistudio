@@ -21,7 +21,7 @@ export function OpeningList({
   return (
     <aside
       aria-label="Opening Library"
-      className="bg-white border border-[#E2E0D8] rounded-lg p-5 flex flex-col gap-5"
+      className="bg-white border border-[#E2E0D8] rounded-lg p-5 flex flex-col gap-5 h-full"
     >
       <div className="flex items-center justify-between gap-2 border-b border-[#ECEAE3] pb-3">
         <h2 className="text-lg font-semibold text-zinc-900 tracking-tight">

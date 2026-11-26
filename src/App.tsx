@@ -241,24 +241,24 @@ export default function App() {
   const status = getGameStatusInfo(board.fen);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F5F4F0] text-zinc-900">
+    <div className="min-h-screen flex flex-col bg-[#F5F4F0] text-zinc-900 overflow-x-hidden">
       {/* Three-Zone Top Bar */}
       <header className="bg-white border-b border-[#E2E0D8]">
-        <div className="max-w-[1360px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
+        <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 sm:gap-8">
           <a
             href="#board"
             onClick={(e) => {
               e.preventDefault();
               setActiveTab('board');
             }}
-            className="font-display text-lg sm:text-xl font-bold tracking-tight text-zinc-900 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1B5E3A]"
+            className="font-display text-base sm:text-xl font-bold tracking-tight text-zinc-900 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1B5E3A]"
           >
             Chess Opening Trainer
           </a>
 
           <nav
             aria-label="Primary navigation"
-            className="flex items-center gap-5 sm:gap-7 overflow-x-auto"
+            className="hidden md:flex items-center gap-6 lg:gap-7"
           >
             <button
               type="button"
@@ -299,7 +299,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleResetBoard}
-              className="px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1B5E3A] hover:bg-[#154A2D] rounded-md transition-colors whitespace-nowrap shrink-0 min-h-[40px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B5E3A]"
+              className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1B5E3A] hover:bg-[#154A2D] rounded-md transition-colors whitespace-nowrap shrink-0 min-h-[40px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B5E3A]"
             >
               Reset Board
             </button>
@@ -307,49 +307,74 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-[1360px] w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {activeTab === 'board' && (
-          <div className="grid grid-cols-1 lg:grid-cols-[290px_minmax(0,1fr)_320px] gap-6 items-start">
-            {/* Left Column: Opening List */}
-            <div className="order-2 lg:order-1">
-              <OpeningList
-                loading={loadingOpening}
-                loadError={loadError}
-                opening={opening}
-                selectedVariationName={selectedVariationName}
-                onSelectVariation={handleSelectVariation}
-                onLoadVariationOnBoard={handleLoadVariationOnBoard}
-              />
-            </div>
+      {/* Mobile View Switcher */}
+      <div className="md:hidden bg-white border-b border-[#E2E0D8] px-4 py-2 flex items-center gap-4 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab('board')}
+          className={`py-1 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+            activeTab === 'board'
+              ? 'border-[#1B5E3A] text-zinc-950'
+              : 'border-transparent text-zinc-600'
+          }`}
+        >
+          Board
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('parser')}
+          className={`py-1 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+            activeTab === 'parser'
+              ? 'border-[#1B5E3A] text-zinc-950'
+              : 'border-transparent text-zinc-600'
+          }`}
+        >
+          Parser Lab
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('spec')}
+          className={`py-1 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+            activeTab === 'spec'
+              ? 'border-[#1B5E3A] text-zinc-950'
+              : 'border-transparent text-zinc-600'
+          }`}
+        >
+          Format Spec
+        </button>
+      </div>
 
-            {/* Center Column: Interactive Board */}
+      {/* Main Content */}
+      <main className="flex-1 max-w-[1680px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+        {activeTab === 'board' && (
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[300px_minmax(0,1fr)_340px] 2xl:grid-cols-[340px_minmax(0,1fr)_380px] gap-5 lg:gap-6 items-start xl:items-stretch">
+            {/* Board Stage: Top on mobile, left on tablet/split-pane, center on wide desktop */}
             <section
               aria-label="Interactive Chessboard"
-              className="order-1 lg:order-2 flex flex-col items-center"
+              className="min-w-0 md:col-start-1 md:row-start-1 md:row-span-2 xl:col-start-2 xl:row-start-1 xl:row-span-1 flex flex-col items-center justify-start xl:justify-center bg-white border border-[#E2E0D8] rounded-lg p-3.5 sm:p-5 lg:p-6"
             >
-              <div className="w-[min(92vw,560px)] flex flex-col gap-3">
+              <div className="w-full max-w-[min(92vw,600px)] flex flex-col gap-3">
                 {/* Turn & Board Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-[#E2E0D8] rounded-lg px-4 py-2.5">
-                  <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-[#F7F6F2] border border-[#E2E0D8] rounded-lg px-3.5 py-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <span
                       aria-hidden="true"
                       className={`w-4 h-4 rounded-sm border border-zinc-800 shrink-0 ${
                         status.turnColor === 'w' ? 'bg-white' : 'bg-zinc-900'
                       }`}
                     />
-                    <span className="text-sm font-semibold text-zinc-900">
+                    <span className="text-sm font-semibold text-zinc-900 truncate">
                       {status.turnLabel}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       onClick={handleUndoMove}
                       disabled={board.history.length === 0}
                       aria-label="Undo last move"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-[#F7F6F2] hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#E2E0D8] rounded-md transition-colors whitespace-nowrap min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-white hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#E2E0D8] rounded-md transition-colors whitespace-nowrap min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
                     >
                       <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
                       Undo
@@ -358,7 +383,7 @@ export default function App() {
                       type="button"
                       onClick={handleFlipBoard}
                       aria-label="Flip board orientation"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-[#F7F6F2] hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors whitespace-nowrap min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-white hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors whitespace-nowrap min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
                     >
                       <ArrowUpDown className="w-3.5 h-3.5" aria-hidden="true" />
                       Flip
@@ -368,7 +393,7 @@ export default function App() {
                       onClick={() => setMuted((m) => !m)}
                       aria-label={muted ? 'Unmute move sounds' : 'Mute move sounds'}
                       aria-pressed={!muted}
-                      className="inline-flex items-center justify-center p-2 text-zinc-700 bg-[#F7F6F2] hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors min-h-[36px] min-w-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
+                      className="inline-flex items-center justify-center p-2 text-zinc-700 bg-white hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors min-h-[36px] min-w-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
                     >
                       {muted ? (
                         <VolumeX className="w-4 h-4" aria-hidden="true" />
@@ -380,7 +405,7 @@ export default function App() {
                       type="button"
                       onClick={handleResetBoard}
                       aria-label="Reset board to starting position"
-                      className="inline-flex items-center justify-center p-2 text-zinc-700 bg-[#F7F6F2] hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors min-h-[36px] min-w-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
+                      className="inline-flex items-center justify-center p-2 text-zinc-700 bg-white hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors min-h-[36px] min-w-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
                     >
                       <RotateCcw className="w-4 h-4" aria-hidden="true" />
                     </button>
@@ -407,8 +432,20 @@ export default function App() {
               </div>
             </section>
 
-            {/* Right Column: Notes & Move History */}
-            <div className="order-3">
+            {/* Opening List: Below board on mobile, top-right on tablet/split-pane, left on desktop */}
+            <div className="min-w-0 md:col-start-2 md:row-start-1 xl:col-start-1 xl:row-start-1">
+              <OpeningList
+                loading={loadingOpening}
+                loadError={loadError}
+                opening={opening}
+                selectedVariationName={selectedVariationName}
+                onSelectVariation={handleSelectVariation}
+                onLoadVariationOnBoard={handleLoadVariationOnBoard}
+              />
+            </div>
+
+            {/* Notes & Move History: Bottom on mobile, bottom-right on tablet/split-pane, right on desktop */}
+            <div className="min-w-0 md:col-start-2 md:row-start-2 xl:col-start-3 xl:row-start-1">
               <NotesPanel
                 opening={opening}
                 selectedVariation={selectedVariation}

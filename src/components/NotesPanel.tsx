@@ -51,7 +51,7 @@ export function NotesPanel({
   return (
     <aside
       aria-label="Study Notes and Move History"
-      className="bg-white border border-[#E2E0D8] rounded-lg p-5 flex flex-col gap-5"
+      className="bg-white border border-[#E2E0D8] rounded-lg p-5 flex flex-col gap-5 h-full"
     >
       {/* Notes Section */}
       <section aria-labelledby="notes-heading">
@@ -106,7 +106,7 @@ export function NotesPanel({
       </section>
 
       {/* Move History Section */}
-      <section aria-labelledby="history-heading" className="border-t border-[#ECEAE3] pt-4">
+      <section aria-labelledby="history-heading" className="border-t border-[#ECEAE3] pt-4 flex-1 flex flex-col min-h-0">
         <div className="flex items-center justify-between gap-2 mb-3">
           <h3
             id="history-heading"
@@ -126,11 +126,11 @@ export function NotesPanel({
         )}
 
         {movePairs.length === 0 ? (
-          <div className="text-xs text-zinc-500 bg-[#F7F6F2] border border-[#ECEAE3] rounded-md px-3 py-4">
+          <div className="flex-1 flex items-center text-xs text-zinc-500 bg-[#F7F6F2] border border-[#ECEAE3] rounded-md px-3.5 py-6">
             No moves played yet. Click or tap a piece on the board to see legal moves.
           </div>
         ) : (
-          <div className="max-h-56 overflow-y-auto border border-[#ECEAE3] rounded-md">
+          <div className="flex-1 max-h-80 overflow-y-auto border border-[#ECEAE3] rounded-md">
             <table className="w-full text-xs font-mono-tabular">
               <thead className="bg-[#F7F6F2] text-zinc-500 border-b border-[#ECEAE3]">
                 <tr>
