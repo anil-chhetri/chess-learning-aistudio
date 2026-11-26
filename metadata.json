@@ -1,0 +1,6 @@
+{
+  "name": "Chess Opening Trainer",
+  "description": "Static, browser-only chess opening trainer with Markdown line parser, move validator, and interactive legal-move chessboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

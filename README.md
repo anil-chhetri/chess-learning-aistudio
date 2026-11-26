@@ -1,11 +1,27 @@
-<div align="center">
+# Chess Opening Trainer
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+A static, browser-only chess opening trainer that turns simple Markdown files into interactive board studies and drills.
 
-  <h1>Built with AI Studio</h2>
+## Running Locally
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+```bash
+npm install
+npm run dev
+```
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+Open `http://localhost:3000` in your browser.
 
-</div>
+## Testing & Content Validation
+
+```bash
+npm test              # Run pure parser and move-validation unit tests
+npm run validate-content  # Validate every .md opening file in public/lines/
+npm run lint          # Run TypeScript typechecking
+npm run build         # Build static bundle into dist/
+```
+
+## Adding an Opening
+
+1. Create a lowercase kebab-case `.md` file in `public/lines/` (for example, `public/lines/sicilian-najdorf.md`).
+2. Follow the format contract in `docs/OPENING_FORMAT.md`.
+3. Run `npm run validate-content` to verify frontmatter and `chess.js` move legality.
