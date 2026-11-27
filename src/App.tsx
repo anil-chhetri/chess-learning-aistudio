@@ -2,27 +2,29 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Square } from 'chess.js';
 import {
   AlertCircle,
-  ArrowUpDown,
-  BookOpen,
-  CheckCircle2,
-  Compass,
   Layers,
   Lightbulb,
   Repeat,
-  RotateCcw,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
+import { BoardToolbar } from './components/BoardToolbar.tsx';
+import { Button } from './components/Button.tsx';
 import { ChessBoard } from './components/ChessBoard.tsx';
+import { CompletionModal } from './components/CompletionModal.tsx';
 import { FormatSpecView } from './components/FormatSpecView.tsx';
+import { MoveHistory } from './components/MoveHistory.tsx';
 import { NotesPanel } from './components/NotesPanel.tsx';
 import { OpeningList } from './components/OpeningList.tsx';
 import { ParserLab } from './components/ParserLab.tsx';
+import { ProgressHeader } from './components/ProgressHeader.tsx';
+import { SidePeekHandle } from './components/SidePeekHandle.tsx';
+import { TurnBanner, type SessionMode } from './components/TurnBanner.tsx';
 import {
   applyOpponentDrillMove,
   applyUserDrillMove,
+  calculateAccuracy,
   computeGuidedMove,
   computeHintSquares,
+  CORRECT_FEEDBACK_MS,
   createIdleDrillState,
   DRILL_STATES,
   getNextPracticeVariation,
@@ -32,85 +34,31 @@ import {
   startVariationDrill,
   WRONG_FLASH_MS,
   type DrillState,
-  type GuidedMoveInfo,
 } from './lib/drill.ts';
 import {
   loadOpeningsFromManifest,
   type LoadedOpeningEntry,
 } from './lib/loader.ts';
+import {
+  getVariationStatus,
+  recordVariationAttempt,
+  recordVariationCompletion,
+  type VariationStats,
+} from './lib/mastery.ts';
 import type { ParsedVariation, PlayerColor } from './lib/parser.ts';
 import { playMoveSound } from './lib/sound.ts';
 import {
   loadTrainerProgress,
   saveLastSelection,
   saveMistakesByVariation,
+  saveVariationStats,
 } from './lib/storage.ts';
 
 type AppTab = 'board' | 'parser' | 'spec';
-type SessionMode = 'practice' | 'test';
-
-function getDrillStatusBanner(
-  drill: DrillState,
-  practiceAllComplete: boolean,
-  sessionMode: SessionMode,
-  guidedMove: GuidedMoveInfo | null,
-): {
-  label: string;
-  tone: 'neutral' | 'turn' | 'wait' | 'wrong' | 'complete';
-  colorSquare: 'w' | 'b';
-} {
-  const variationColor = drill.variation?.playerColor === 'black' ? 'b' : 'w';
-
-  if (drill.wrongSquare) {
-    return {
-      label:
-        sessionMode === 'practice' && guidedMove
-          ? `Follow arrow · Play ${guidedMove.san} (${guidedMove.from} → ${guidedMove.to})`
-          : 'Not the opening move — try again or use Hint',
-      tone: 'wrong',
-      colorSquare: variationColor,
-    };
-  }
-  if (drill.status === DRILL_STATES.USER_TURN) {
-    if (sessionMode === 'practice' && guidedMove) {
-      return {
-        label: `Practice · Play ${guidedMove.san} (${guidedMove.from} → ${guidedMove.to})`,
-        tone: 'turn',
-        colorSquare: variationColor,
-      };
-    }
-    return {
-      label: `Your turn (${variationColor === 'w' ? 'White' : 'Black'})`,
-      tone: 'turn',
-      colorSquare: variationColor,
-    };
-  }
-  if (drill.status === DRILL_STATES.OPPONENT_TURN) {
-    return {
-      label: 'Opponent playing reply...',
-      tone: 'wait',
-      colorSquare: variationColor === 'w' ? 'b' : 'w',
-    };
-  }
-  if (drill.status === DRILL_STATES.VARIATION_COMPLETE) {
-    return {
-      label: practiceAllComplete
-        ? 'All variations complete!'
-        : `Line complete · ${drill.mistakes} ${drill.mistakes === 1 ? 'mistake' : 'mistakes'}`,
-      tone: 'complete',
-      colorSquare: variationColor,
-    };
-  }
-  return {
-    label: 'Select a variation to begin drilling',
-    tone: 'neutral',
-    colorSquare: 'w',
-  };
-}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('board');
-  const [sessionMode, setSessionMode] = useState<SessionMode>('practice');
+  const [sessionMode, setSessionMode] = useState<SessionMode>('test');
   const [loadingOpenings, setLoadingOpenings] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [openings, setOpenings] = useState<LoadedOpeningEntry[]>([]);
@@ -126,11 +74,24 @@ export default function App() {
   const [mistakesByVariation, setMistakesByVariation] = useState<
     Record<string, number>
   >(() => loadTrainerProgress().mistakesByVariation);
+  const [variationStats, setVariationStats] = useState<
+    Record<string, VariationStats>
+  >(() => loadTrainerProgress().variationStats);
+  const [completionDismissed, setCompletionDismissed] = useState(false);
+  const [completionElapsedSec, setCompletionElapsedSec] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(true);
+  const [showMoves, setShowMoves] = useState(true);
+  const [showNotes, setShowNotes] = useState(true);
 
   const opponentTimerRef = useRef<number | null>(null);
   const loopTimerRef = useRef<number | null>(null);
   const wrongFlashTimerRef = useRef<number | null>(null);
+  const correctFeedbackTimerRef = useRef<number | null>(null);
+  const drillStartMsRef = useRef<number>(Date.now());
+  const attemptRecordedRef = useRef<boolean>(false);
+  const completionRecordedRef = useRef<boolean>(false);
+  const libraryContainerRef = useRef<HTMLDivElement | null>(null);
 
   const clearPendingTimers = useCallback(() => {
     if (opponentTimerRef.current !== null) {
@@ -145,6 +106,10 @@ export default function App() {
       window.clearTimeout(wrongFlashTimerRef.current);
       wrongFlashTimerRef.current = null;
     }
+    if (correctFeedbackTimerRef.current !== null) {
+      window.clearTimeout(correctFeedbackTimerRef.current);
+      correctFeedbackTimerRef.current = null;
+    }
   }, []);
 
   const beginVariationDrill = useCallback(
@@ -155,8 +120,12 @@ export default function App() {
     ) => {
       clearPendingTimers();
       setPracticeAllComplete(false);
+      setCompletionDismissed(false);
       setOrientationOverride(null);
       setSelectedOpeningPath(openingPath);
+      drillStartMsRef.current = Date.now();
+      attemptRecordedRef.current = false;
+      completionRecordedRef.current = false;
       saveLastSelection(openingPath, variation.name);
       setDrill(startVariationDrill(openingPath, variation, initialMistakes));
     },
@@ -177,6 +146,7 @@ export default function App() {
 
       const saved = loadTrainerProgress();
       setMistakesByVariation(saved.mistakesByVariation);
+      setVariationStats(saved.variationStats);
 
       const matchedEntry =
         result.openings.find((o) => o.path === saved.lastOpening) ??
@@ -198,6 +168,9 @@ export default function App() {
             matchedVariation.name,
           );
           const restoredMistakes = saved.mistakesByVariation[varKey] ?? 0;
+          drillStartMsRef.current = Date.now();
+          attemptRecordedRef.current = false;
+          completionRecordedRef.current = false;
           saveLastSelection(matchedEntry.path, matchedVariation.name);
           setDrill(
             startVariationDrill(
@@ -219,7 +192,7 @@ export default function App() {
     };
   }, [clearPendingTimers]);
 
-  // Opponent auto-play after 700ms when status === OPPONENT_TURN
+  // Opponent auto-play after 600ms when status === OPPONENT_TURN
   useEffect(() => {
     if (drill.status !== DRILL_STATES.OPPONENT_TURN) return;
 
@@ -241,6 +214,43 @@ export default function App() {
       }
     };
   }, [drill.status, drill.drillIndex, drill.variation?.name, muted]);
+
+  // Record completion & elapsed time once when VARIATION_COMPLETE is reached
+  useEffect(() => {
+    if (
+      drill.status !== DRILL_STATES.VARIATION_COMPLETE ||
+      !drill.openingPath ||
+      !drill.variation ||
+      completionRecordedRef.current
+    ) {
+      return;
+    }
+
+    completionRecordedRef.current = true;
+    const elapsedSec = Math.max(
+      1,
+      Math.round((Date.now() - drillStartMsRef.current) / 1000),
+    );
+    setCompletionElapsedSec(elapsedSec);
+
+    const varKey = getVariationKey(drill.openingPath, drill.variation.name);
+    const accuracy = calculateAccuracy(drill.correctMoves, drill.mistakes);
+
+    setVariationStats((prev) => {
+      const updated = {
+        ...prev,
+        [varKey]: recordVariationCompletion(prev[varKey], accuracy),
+      };
+      saveVariationStats(updated);
+      return updated;
+    });
+  }, [
+    drill.status,
+    drill.openingPath,
+    drill.variation,
+    drill.correctMoves,
+    drill.mistakes,
+  ]);
 
   // Auto-Loop or Practice All transition after 1500ms on VARIATION_COMPLETE
   useEffect(() => {
@@ -321,6 +331,39 @@ export default function App() {
           playMoveSound(outcome.soundType, muted);
         }
 
+        if (
+          !attemptRecordedRef.current &&
+          prev.openingPath &&
+          prev.variation
+        ) {
+          attemptRecordedRef.current = true;
+          const varKey = getVariationKey(prev.openingPath, prev.variation.name);
+          setVariationStats((prevStats) => {
+            const nextStats = {
+              ...prevStats,
+              [varKey]: recordVariationAttempt(prevStats[varKey]),
+            };
+            saveVariationStats(nextStats);
+            return nextStats;
+          });
+        }
+
+        if (outcome.result === 'correct') {
+          if (wrongFlashTimerRef.current !== null) {
+            window.clearTimeout(wrongFlashTimerRef.current);
+            wrongFlashTimerRef.current = null;
+          }
+          if (correctFeedbackTimerRef.current !== null) {
+            window.clearTimeout(correctFeedbackTimerRef.current);
+          }
+          correctFeedbackTimerRef.current = window.setTimeout(() => {
+            correctFeedbackTimerRef.current = null;
+            setDrill((curr) =>
+              curr.feedback === 'correct' ? { ...curr, feedback: null } : curr,
+            );
+          }, CORRECT_FEEDBACK_MS);
+        }
+
         if (outcome.result === 'wrong' && prev.openingPath && prev.variation) {
           const varKey = getVariationKey(prev.openingPath, prev.variation.name);
           const updatedMistakes = outcome.state.mistakes;
@@ -336,7 +379,9 @@ export default function App() {
           wrongFlashTimerRef.current = window.setTimeout(() => {
             wrongFlashTimerRef.current = null;
             setDrill((curr) =>
-              curr.wrongSquare ? { ...curr, wrongSquare: null } : curr,
+              curr.wrongSquare || curr.feedback === 'wrong'
+                ? { ...curr, wrongSquare: null, feedback: null }
+                : curr,
             );
           }, WRONG_FLASH_MS);
         }
@@ -348,12 +393,13 @@ export default function App() {
   );
 
   const handleHint = useCallback(() => {
+    if (sessionMode !== 'practice') return;
     setDrill((prev) => {
       const hint = computeHintSquares(prev);
       if (!hint) return prev;
       return { ...prev, hintSquares: hint };
     });
-  }, []);
+  }, [sessionMode]);
 
   const handleResetDrill = useCallback(() => {
     setActiveTab('board');
@@ -415,49 +461,117 @@ export default function App() {
 
   const handleFlipBoard = useCallback(() => {
     setOrientationOverride((prev) => {
-      const current = prev ?? (activeVariation?.playerColor === 'black' ? 'black' : 'white');
+      const current =
+        prev ?? (activeVariation?.playerColor === 'black' ? 'black' : 'white');
       return current === 'white' ? 'black' : 'white';
     });
   }, [activeVariation]);
 
+  const handleToggleMute = useCallback(() => {
+    setMuted((m) => !m);
+  }, []);
+
   const handleChangeSessionMode = useCallback((mode: SessionMode) => {
     setSessionMode(mode);
     if (mode === 'test') {
-      setDrill((prev) => (prev.hintSquares ? { ...prev, hintSquares: null } : prev));
+      setDrill((prev) =>
+        prev.hintSquares ? { ...prev, hintSquares: null } : prev,
+      );
     }
+  }, []);
+
+  const activeOpeningEntry = openings.find((o) => o.path === drill.openingPath);
+  const nextLineInOpening =
+    activeOpeningEntry && drill.variation
+      ? getNextPracticeVariation(
+          activeOpeningEntry.parsed.variations,
+          drill.variation.name,
+        )
+      : null;
+
+  const handleNextLine = useCallback(() => {
+    if (!drill.openingPath || !nextLineInOpening) return;
+    const nextKey = getVariationKey(drill.openingPath, nextLineInOpening.name);
+    setMistakesByVariation((prev) => {
+      const next = { ...prev, [nextKey]: 0 };
+      saveMistakesByVariation(next);
+      return next;
+    });
+    beginVariationDrill(drill.openingPath, nextLineInOpening, 0);
+  }, [drill.openingPath, nextLineInOpening, beginVariationDrill]);
+
+  const handleToggleLibrary = useCallback(() => {
+    setShowLibrary((prev) => !prev);
+  }, []);
+
+  const handleToggleMoves = useCallback(() => {
+    setShowMoves((prev) => !prev);
+  }, []);
+
+  const handleToggleNotes = useCallback(() => {
+    setShowNotes((prev) => !prev);
+  }, []);
+
+  const handleBackToLibrary = useCallback(() => {
+    setCompletionDismissed(true);
+    setShowLibrary(true);
+    window.requestAnimationFrame(() => {
+      libraryContainerRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
   }, []);
 
   const guidedMove =
     sessionMode === 'practice' ? computeGuidedMove(drill) : null;
-  const activeHintSquares = guidedMove
-    ? { from: guidedMove.from, to: guidedMove.to }
-    : drill.hintSquares;
-  const activeArrowMove = guidedMove
-    ? { from: guidedMove.from, to: guidedMove.to }
-    : drill.hintSquares;
-  const banner = getDrillStatusBanner(
-    drill,
-    practiceAllComplete,
-    sessionMode,
-    guidedMove,
-  );
+  const activeHintSquares =
+    sessionMode === 'practice' && guidedMove
+      ? { from: guidedMove.from, to: guidedMove.to }
+      : null;
+  const activeArrowMove =
+    sessionMode === 'practice' && guidedMove
+      ? { from: guidedMove.from, to: guidedMove.to }
+      : null;
   const boardLocked = drill.status !== DRILL_STATES.USER_TURN;
   const canHint =
-    drill.status === DRILL_STATES.USER_TURN && sessionMode === 'test';
+    drill.status === DRILL_STATES.USER_TURN && sessionMode === 'practice';
   const canReset = Boolean(drill.variation);
 
+  const activeVarKey =
+    drill.openingPath && drill.variation
+      ? getVariationKey(drill.openingPath, drill.variation.name)
+      : null;
+  const activeVarStats = activeVarKey ? variationStats[activeVarKey] : undefined;
+  const showCompletionModal =
+    drill.status === DRILL_STATES.VARIATION_COMPLETE &&
+    !autoLoop &&
+    !practiceAll &&
+    !completionDismissed &&
+    Boolean(drill.variation);
+
+  const boardGridClass = showLibrary
+    ? 'grid-cols-1 md:grid-cols-[276px_minmax(0,1fr)] xl:grid-cols-[296px_minmax(0,1fr)]'
+    : 'grid-cols-1';
+
+  const isFocusMode = !showLibrary;
+  const boardStageWidthClass = isFocusMode
+    ? showMoves
+      ? 'board-stage-focus'
+      : 'board-stage-focus-nomoves'
+    : showMoves
+      ? 'board-stage-with-library'
+      : 'board-stage-with-library-nomoves';
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#F5F4F0] text-zinc-900 overflow-x-hidden">
+    <div className="min-h-screen flex flex-col bg-neutral-50 text-neutral-900 overflow-x-hidden">
       {/* Three-Zone Top Bar */}
-      <header className="bg-white border-b border-[#E2E0D8]">
-        <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 sm:gap-8">
+      <header className="bg-white border-b border-neutral-200">
+        <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between gap-4 sm:gap-8">
           <a
             href="#board"
             onClick={(e) => {
               e.preventDefault();
               setActiveTab('board');
             }}
-            className="font-display text-base sm:text-xl font-bold tracking-tight text-zinc-900 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1B5E3A]"
+            className="font-display ds-text-heading tracking-tight text-neutral-900 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-700"
           >
             Chess Opening Trainer
           </a>
@@ -469,10 +583,10 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('board')}
-              className={`py-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1B5E3A] ${
+              className={`py-1 ds-text-body-bold border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-700 ${
                 activeTab === 'board'
-                  ? 'border-[#1B5E3A] text-zinc-950'
-                  : 'border-transparent text-zinc-600 hover:text-zinc-900'
+                  ? 'border-primary-700 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-900'
               }`}
             >
               Board
@@ -480,10 +594,10 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('parser')}
-              className={`py-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1B5E3A] ${
+              className={`py-1 ds-text-body-bold border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-700 ${
                 activeTab === 'parser'
-                  ? 'border-[#1B5E3A] text-zinc-950'
-                  : 'border-transparent text-zinc-600 hover:text-zinc-900'
+                  ? 'border-primary-700 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-900'
               }`}
             >
               Parser Lab
@@ -491,10 +605,10 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('spec')}
-              className={`py-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1B5E3A] ${
+              className={`py-1 ds-text-body-bold border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-700 ${
                 activeTab === 'spec'
-                  ? 'border-[#1B5E3A] text-zinc-950'
-                  : 'border-transparent text-zinc-600 hover:text-zinc-900'
+                  ? 'border-primary-700 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-900'
               }`}
             >
               Format Spec
@@ -502,27 +616,28 @@ export default function App() {
           </nav>
 
           <div className="shrink-0">
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleResetDrill}
               disabled={!canReset}
-              className="px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1B5E3A] hover:bg-[#154A2D] disabled:opacity-50 rounded-md transition-colors whitespace-nowrap shrink-0 min-h-[40px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B5E3A]"
+              aria-label="Reset drill"
             >
               Reset Drill
-            </button>
+            </Button>
           </div>
         </div>
       </header>
 
       {/* Mobile View Switcher */}
-      <div className="md:hidden bg-white border-b border-[#E2E0D8] px-4 py-2 flex items-center gap-4 overflow-x-auto">
+      <div className="md:hidden bg-white border-b border-neutral-200 px-4 py-2 flex items-center gap-4 overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('board')}
-          className={`py-1 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+          className={`py-1 ds-text-label border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'board'
-              ? 'border-[#1B5E3A] text-zinc-950'
-              : 'border-transparent text-zinc-600'
+              ? 'border-primary-700 text-neutral-900'
+              : 'border-transparent text-neutral-500'
           }`}
         >
           Board
@@ -530,10 +645,10 @@ export default function App() {
         <button
           type="button"
           onClick={() => setActiveTab('parser')}
-          className={`py-1 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+          className={`py-1 ds-text-label border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'parser'
-              ? 'border-[#1B5E3A] text-zinc-950'
-              : 'border-transparent text-zinc-600'
+              ? 'border-primary-700 text-neutral-900'
+              : 'border-transparent text-neutral-500'
           }`}
         >
           Parser Lab
@@ -541,10 +656,10 @@ export default function App() {
         <button
           type="button"
           onClick={() => setActiveTab('spec')}
-          className={`py-1 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+          className={`py-1 ds-text-label border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'spec'
-              ? 'border-[#1B5E3A] text-zinc-950'
-              : 'border-transparent text-zinc-600'
+              ? 'border-primary-700 text-neutral-900'
+              : 'border-transparent text-neutral-500'
           }`}
         >
           Format Spec
@@ -552,20 +667,21 @@ export default function App() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-[1680px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 space-y-5">
+      <main
+        className={`flex-1 max-w-[1680px] w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-4 ${
+          activeTab === 'board' && isFocusMode ? 'py-2' : 'py-4'
+        }`}
+      >
         {/* Content Pipeline Error Banner */}
         {loadErrors.length > 0 && (
           <div
             role="alert"
-            className="bg-red-50 border border-red-300 text-red-900 rounded-lg px-4 py-3 flex items-start gap-3"
+            className="bg-red-50 border border-red-300 text-error rounded-[12px] p-4 flex items-start gap-3"
           >
-            <AlertCircle
-              className="w-5 h-5 text-red-700 shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div className="text-sm space-y-1">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="ds-text-body space-y-1">
               {loadErrors.map((errMsg, idx) => (
-                <p key={idx} className="font-medium">
+                <p key={idx} className="font-semibold">
                   {errMsg}
                 </p>
               ))}
@@ -574,108 +690,80 @@ export default function App() {
         )}
 
         {activeTab === 'board' && (
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[300px_minmax(0,1fr)_340px] 2xl:grid-cols-[340px_minmax(0,1fr)_380px] gap-5 lg:gap-6 items-start xl:items-stretch">
-            {/* Board Stage */}
+          <div className={`grid ${boardGridClass} gap-4 xl:gap-5 items-start`}>
+            {/* Opening List with Mastery Status Badges (Left Sidebar, Hideable + Side Arrow Peek/Open) */}
+            {showLibrary ? (
+              <div ref={libraryContainerRef} className="min-w-0 order-2 md:order-1">
+                <OpeningList
+                  loading={loadingOpenings}
+                  openings={openings}
+                  selectedOpeningPath={selectedOpeningPath}
+                  selectedVariationName={activeVariation?.name ?? null}
+                  mistakesByVariation={mistakesByVariation}
+                  variationStats={variationStats}
+                  onSelectOpening={handleSelectOpening}
+                  onStartVariationDrill={handleStartVariationDrill}
+                  onHide={handleToggleLibrary}
+                />
+              </div>
+            ) : (
+              <SidePeekHandle
+                side="left"
+                label="Opening Library"
+                onOpen={handleToggleLibrary}
+              >
+                <OpeningList
+                  loading={loadingOpenings}
+                  openings={openings}
+                  selectedOpeningPath={selectedOpeningPath}
+                  selectedVariationName={activeVariation?.name ?? null}
+                  mistakesByVariation={mistakesByVariation}
+                  variationStats={variationStats}
+                  onSelectOpening={handleSelectOpening}
+                  onStartVariationDrill={handleStartVariationDrill}
+                />
+              </SidePeekHandle>
+            )}
+
+            {/* Enlarged Board Stage with Progress at Top and Moves + Study Notes at Bottom */}
             <section
               aria-label="Interactive Drill Chessboard"
-              className="min-w-0 md:col-start-1 md:row-start-1 md:row-span-2 xl:col-start-2 xl:row-start-1 xl:row-span-1 flex flex-col items-center justify-start xl:justify-center bg-white border border-[#E2E0D8] rounded-lg p-3.5 sm:p-5 lg:p-6"
+              className={`min-w-0 order-1 ${
+                showLibrary ? 'md:order-2' : ''
+              } flex flex-col items-center justify-start bg-white border border-neutral-200 rounded-[12px] shadow-sm ${
+                isFocusMode ? 'p-2.5 sm:p-3' : 'p-3 sm:p-4'
+              }`}
             >
-              <div className="w-full max-w-[min(92vw,600px)] flex flex-col gap-3">
-                {/* Session Mode Switcher (Practice = Guided, Test = Memory Recall) */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div
-                    role="group"
-                    aria-label="Session mode"
-                    className="inline-flex rounded-md border border-[#D8D5CB] bg-[#F7F6F2] p-0.5"
-                  >
-                    <button
-                      type="button"
-                      aria-pressed={sessionMode === 'practice'}
-                      onClick={() => handleChangeSessionMode('practice')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-colors min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
-                        sessionMode === 'practice'
-                          ? 'bg-[#1B5E3A] text-white shadow-xs'
-                          : 'text-zinc-700 hover:text-zinc-950'
-                      }`}
-                    >
-                      <Compass className="w-3.5 h-3.5" aria-hidden="true" />
-                      Practice
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={sessionMode === 'test'}
-                      onClick={() => handleChangeSessionMode('test')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded transition-colors min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
-                        sessionMode === 'test'
-                          ? 'bg-[#1B5E3A] text-white shadow-xs'
-                          : 'text-zinc-700 hover:text-zinc-950'
-                      }`}
-                    >
-                      <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
-                      Test
-                    </button>
-                  </div>
-                  <span className="text-xs text-zinc-500">
-                    {sessionMode === 'practice'
-                      ? 'Shows move direction arrow so you can learn the line'
-                      : 'Plays from memory with hints available on demand'}
-                  </span>
-                </div>
+              <div className={`${boardStageWidthClass} flex flex-col gap-2`}>
+                {/* Compact Progress Strip at Top */}
+                {activeVariation && drill.status !== DRILL_STATES.IDLE && (
+                  <ProgressHeader
+                    drillIndex={drill.drillIndex}
+                    totalMoves={activeVariation.moves.length}
+                    correctMoves={drill.correctMoves}
+                    mistakes={drill.mistakes}
+                  />
+                )}
 
-                {/* Drill Status & Utility Bar */}
-                <div
-                  className={`flex flex-wrap items-center justify-between gap-2 border rounded-lg px-3.5 py-2.5 transition-colors ${
-                    banner.tone === 'wrong'
-                      ? 'bg-red-50 border-red-300 text-red-900'
-                      : banner.tone === 'complete'
-                        ? 'bg-[#EBF2ED] border-[#9EC5AC] text-emerald-950'
-                        : 'bg-[#F7F6F2] border-[#E2E0D8] text-zinc-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {banner.tone === 'complete' ? (
-                      <CheckCircle2
-                        className="w-4 h-4 text-[#1B5E3A] shrink-0"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        className={`w-4 h-4 rounded-sm border border-zinc-800 shrink-0 ${
-                          banner.colorSquare === 'w' ? 'bg-white' : 'bg-zinc-900'
-                        }`}
-                      />
-                    )}
-                    <span className="text-sm font-semibold truncate">
-                      {banner.label}
-                    </span>
-                  </div>
+                {/* Board Toolbar with Mode Toggle (Test default / Practice), Flip, Reset, Sound, and ... Menu (FEN) */}
+                <BoardToolbar
+                  sessionMode={sessionMode}
+                  muted={muted}
+                  fen={drill.fen}
+                  canReset={canReset}
+                  onChangeSessionMode={handleChangeSessionMode}
+                  onFlipBoard={handleFlipBoard}
+                  onResetDrill={handleResetDrill}
+                  onToggleMute={handleToggleMute}
+                />
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleFlipBoard}
-                      aria-label="Flip board orientation"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-zinc-700 bg-white hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors whitespace-nowrap min-h-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
-                    >
-                      <ArrowUpDown className="w-3.5 h-3.5" aria-hidden="true" />
-                      Flip
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMuted((m) => !m)}
-                      aria-label={muted ? 'Unmute move sounds' : 'Mute move sounds'}
-                      aria-pressed={!muted}
-                      className="inline-flex items-center justify-center p-2 text-zinc-700 bg-white hover:bg-[#EDEAD9] border border-[#E2E0D8] rounded-md transition-colors min-h-[36px] min-w-[36px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
-                    >
-                      {muted ? (
-                        <VolumeX className="w-4 h-4" aria-hidden="true" />
-                      ) : (
-                        <Volume2 className="w-4 h-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                {/* Turn Banner */}
+                <TurnBanner
+                  drill={drill}
+                  sessionMode={sessionMode}
+                  guidedMove={guidedMove}
+                  practiceAllComplete={practiceAllComplete}
+                />
 
                 {/* Chessboard */}
                 <ChessBoard
@@ -689,93 +777,70 @@ export default function App() {
                   onMakeMove={handleMakeMove}
                 />
 
-                {/* 4 Coaching Controls Only: Hint, Reset, Auto-Loop, Practice All */}
+                {/* Horizontal Move History (Thin hover/click bar when hidden) */}
+                <MoveHistory
+                  history={drill.history}
+                  pinned={showMoves}
+                  onToggle={handleToggleMoves}
+                />
+
+                {/* 3 Coaching Controls: Hint, Auto-Loop, Practice All */}
                 <div
                   role="group"
                   aria-label="Coaching controls"
-                  className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+                  className="grid grid-cols-3 gap-2"
                 >
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={handleHint}
                     disabled={!canHint}
+                    aria-label="Show hint"
                     title={
-                      sessionMode === 'practice'
-                        ? 'Direction is shown automatically in Practice mode'
-                        : 'Show the next move'
+                      sessionMode === 'test'
+                        ? 'Test: Hints are disabled'
+                        : 'Practice: Highlight next move'
                     }
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold text-zinc-800 bg-[#F7F6F2] hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#D8D5CB] rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
                   >
-                    <Lightbulb className="w-4 h-4 text-amber-600" aria-hidden="true" />
+                    <Lightbulb
+                      className="w-4 h-4 text-accent-500"
+                      aria-hidden="true"
+                    />
                     Hint
-                  </button>
+                  </Button>
 
-                  <button
-                    type="button"
-                    onClick={handleResetDrill}
-                    disabled={!canReset}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold text-zinc-800 bg-[#F7F6F2] hover:bg-[#EDEAD9] disabled:opacity-45 disabled:pointer-events-none border border-[#D8D5CB] rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A]"
-                  >
-                    <RotateCcw className="w-4 h-4" aria-hidden="true" />
-                    Reset
-                  </button>
-
-                  <button
-                    type="button"
+                  <Button
+                    variant={autoLoop ? 'primary' : 'secondary'}
+                    size="sm"
                     aria-pressed={autoLoop}
+                    aria-label="Toggle auto-loop"
                     onClick={handleToggleAutoLoop}
-                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold border rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
-                      autoLoop
-                        ? 'bg-[#1B5E3A] text-white border-[#1B5E3A]'
-                        : 'bg-[#F7F6F2] text-zinc-800 border-[#D8D5CB] hover:bg-[#EDEAD9]'
-                    }`}
                   >
                     <Repeat className="w-4 h-4" aria-hidden="true" />
                     Auto-Loop
-                  </button>
+                  </Button>
 
-                  <button
-                    type="button"
+                  <Button
+                    variant={practiceAll ? 'primary' : 'secondary'}
+                    size="sm"
                     aria-pressed={practiceAll}
+                    aria-label="Toggle practice all variations"
                     onClick={handleTogglePracticeAll}
-                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold border rounded-md transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-2 focus-visible:outline-[#1B5E3A] ${
-                      practiceAll
-                        ? 'bg-[#1B5E3A] text-white border-[#1B5E3A]'
-                        : 'bg-[#F7F6F2] text-zinc-800 border-[#D8D5CB] hover:bg-[#EDEAD9]'
-                    }`}
                   >
                     <Layers className="w-4 h-4" aria-hidden="true" />
                     Practice All
-                  </button>
+                  </Button>
                 </div>
+
+                {/* Structured Study Notes at Bottom (Thin hover/click bar when hidden) */}
+                <NotesPanel
+                  opening={selectedOpening}
+                  selectedVariation={activeVariation}
+                  pinned={showNotes}
+                  onToggle={handleToggleNotes}
+                />
               </div>
             </section>
-
-            {/* Opening List */}
-            <div className="min-w-0 md:col-start-2 md:row-start-1 xl:col-start-1 xl:row-start-1">
-              <OpeningList
-                loading={loadingOpenings}
-                openings={openings}
-                selectedOpeningPath={selectedOpeningPath}
-                selectedVariationName={activeVariation?.name ?? null}
-                mistakesByVariation={mistakesByVariation}
-                onSelectOpening={handleSelectOpening}
-                onStartVariationDrill={handleStartVariationDrill}
-              />
-            </div>
-
-            {/* Notes & Move History */}
-            <div className="min-w-0 md:col-start-2 md:row-start-2 xl:col-start-3 xl:row-start-1">
-              <NotesPanel
-                opening={selectedOpening}
-                selectedVariation={activeVariation}
-                drillStatus={drill.status}
-                drillIndex={drill.drillIndex}
-                mistakes={drill.mistakes}
-                history={drill.history}
-                fen={drill.fen}
-              />
-            </div>
           </div>
         )}
 
@@ -791,6 +856,25 @@ export default function App() {
 
         {activeTab === 'spec' && <FormatSpecView />}
       </main>
+
+      {/* Sprint 2.3 Line Completion Modal */}
+      {drill.variation && (
+        <CompletionModal
+          open={showCompletionModal}
+          openingTitle={activeOpeningEntry?.parsed.title ?? ''}
+          variationName={drill.variation.name}
+          totalMoves={drill.variation.moves.length}
+          correctMoves={drill.correctMoves}
+          mistakes={drill.mistakes}
+          elapsedSeconds={completionElapsedSec}
+          masteryStatus={getVariationStatus(activeVarStats)}
+          highAccuracyCompletions={activeVarStats?.highAccuracyCompletions ?? 0}
+          hasNextLine={Boolean(nextLineInOpening)}
+          onPracticeAgain={handleResetDrill}
+          onNextLine={handleNextLine}
+          onBackToLibrary={handleBackToLibrary}
+        />
+      )}
     </div>
   );
 }

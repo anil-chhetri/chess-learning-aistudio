@@ -30,7 +30,7 @@ Open `http://localhost:3000` in your browser.
 
 The top navigation bar provides three views:
 
-1. **Board** — The main three-column study workspace (**Opening Library**, interactive legal-move **Chessboard**, and **Study Notes / Move History / FEN**). Select any opening and variation, read its notes, click **Load Line on Board** to replay its moves, or play moves manually to inspect legal targets and captures.
+1. **Board** — The study workspace featuring the collapsible **Opening Library** on the left, interactive **Chessboard** with **Test** (default) and **Practice** modes, top **Progress** strip, and bottom **Move History** and **Study Notes** (`Idea`, `Plan`, `Watch Out`). Select any opening and variation, toggle panels open or hover-peek collapsed bars, and drill moves with instant legality and accuracy feedback.
 2. **Parser Lab** — A live in-browser sandbox for testing the Markdown parser (`src/lib/parser.ts`) and `chess.js` move validator (`src/lib/validate.ts`). You can:
    - Click any loaded opening (such as **Queen's Gambit**, **Sicilian Defense**, or **King's Indian Defense**) to inspect its raw Markdown and parsed JSON output.
    - Click the 5 built-in test presets (**1. Inherits playerColor**, **2. Overrides playerColor**, **3. Illegal Move Error**, **4. Missing Moves Block**, **5. Empty File**) to see how the parser handles valid files and isolates broken variations into `errors[]` without crashing.
@@ -141,7 +141,7 @@ The full specification lives in [`docs/OPENING_FORMAT.md`](docs/OPENING_FORMAT.m
 2. **File naming:** Lowercase kebab-case only, no spaces (`queens-gambit.md`, never `Queen's Gambit.md`).
 3. **Exact lowercase `playerColor`:** Must be `white` or `black` (never `White` or `WHITE`).
 4. **No move numbers inside `moves`:** Write `e4 e5 Nf3 Nc6`, never `1. e4 e5 2. Nf3 Nc6`.
-5. **Section order inside each variation:** `## Variation Name` → optional `eco:` / `playerColor:` → study notes → ```` ```moves ```` block.
+5. **Section order inside each variation:** `## Variation Name` → optional `eco:` / `playerColor:` → structured study notes (`Idea:`, `Plan:`, `Watch Out:`) → ```` ```moves ```` block.
 
 ### Template 1: Standard Opening for White
 
@@ -160,7 +160,9 @@ A classical open game targeting Black's vulnerable f7 square while fighting for 
 
 eco: C50
 
-Develop the bishop to c4, castle early, and prepare c3 followed by d4.
+Idea: Control central dark squares with Bc4 while preparing a steady c3 and d4 pawn break.
+Plan: Develop Bc4 and Nf3, castle kingside early, and build the center with c3 and d4.
+Watch Out: Keep e4 defended against ...Nxe4 tricks before pushing d4.
 
 ```moves
 e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+
@@ -170,7 +172,9 @@ e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+
 
 eco: C55
 
-Black counterattacks e4 immediately with ...Nf6 instead of ...Bc5.
+Idea: Black counterattacks e4 immediately with ...Nf6 instead of ...Bc5.
+Plan: Defend e4 or strike with Ng5/d4 to test Black's kingside coordination.
+Watch Out: Watch for ...d5 counterstrikes in the center when your bishop sits on c4.
 
 ```moves
 e4 e5 Nf3 Nc6 Bc4 Nf6 d3 Be7 O-O O-O
@@ -194,7 +198,9 @@ Black prepares ...d5 with 1...c6 so the light-squared bishop can develop outside
 
 eco: B18
 
-Trade pawns on e4, develop the bishop to f5 before playing ...e6, and keep a rock-solid structure.
+Idea: Trade pawns on e4 so the light-squared bishop develops actively to f5 outside the pawn chain.
+Plan: Play ...dxe4, ...Bf5, and ...e6 to establish a rock-solid kingside and queenside structure.
+Watch Out: Retreat ...Bg6 cleanly when challenged with h4-h5 to avoid trapping the bishop.
 
 ```moves
 e4 c6 d4 d5 Nc3 dxe4 Nxe4 Bf5 Ng3 Bg6 h4 h6
@@ -205,7 +211,9 @@ e4 c6 d4 d5 Nc3 dxe4 Nxe4 Bf5 Ng3 Bg6 h4 h6
 eco: B12
 playerColor: white
 
-Use a variation-level `playerColor` override whenever you want a specific line oriented from the opposite side.
+Idea: Gain kingside space with e5 and restrict Black's natural knight square on f6.
+Plan: Use a variation-level `playerColor` override whenever you want a specific line oriented from the opposite side.
+Watch Out: Support d4 carefully against Black's thematic ...c5 counterattack.
 
 ```moves
 e4 c6 d4 d5 e5 Bf5 Nf3 e6 Be2 c5 Be3

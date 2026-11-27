@@ -10,7 +10,9 @@ tags: [d4, gambit, closed]
 eco: D20
 playerColor: white
 
-Black accepts the gambit pawn. Develop quickly and contest the center with e4.
+Idea: Black surrenders the center on c4; White prioritizes rapid development.
+Plan: Play e3, recapture Bxc4, develop Nf3, and castle early.
+Watch Out: Avoid premature Qxc4 or Qa4+ moves that lose tempo.
 
 \`\`\`moves
 d4 d5 c4 dxc4 e3 Nf6 Bxc4 e6 Nf3 c5 O-O Nc6
@@ -38,9 +40,9 @@ const CONTRACT_RULES = [
       'Write "d4 d5 c4 dxc4" separated by spaces or line breaks. Never include move numbers like "1. d4" or annotations.',
   },
   {
-    title: '05. Strict section order and lowercase color',
+    title: '05. Strict section order, study notes & lowercase color',
     detail:
-      'Follow Heading -> eco:/playerColor: -> Notes -> ```moves. playerColor must be exact lowercase "white" or "black".',
+      'Follow Heading -> eco:/playerColor: -> Idea:/Plan:/Watch Out: notes -> ```moves. playerColor must be exact lowercase "white" or "black".',
   },
 ];
 

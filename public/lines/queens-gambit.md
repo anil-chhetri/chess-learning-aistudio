@@ -13,7 +13,9 @@ A classical 1. d4 opening where White offers the c4 wing pawn to contest Black's
 eco: D20
 playerColor: white
 
-Black accepts the gambit pawn. Our plan is not to win it back immediately, but to develop quickly and control the center with e4. Don't play Qxc4 too early — Black will develop with tempo.
+Idea: Black surrenders the center by taking on c4; White prioritizes rapid development over chasing the pawn immediately.
+Plan: Play e3 to recapture smoothly with Bxc4, develop Nf3, castle early, and fight for central control after ...c5.
+Watch Out: Don't play Qa4+ or Qxc4 prematurely without developing—Black will gain easy tempos on your queen.
 
 ```moves
 d4 d5 c4 dxc4 e3 Nf6 Bxc4 e6 Nf3 c5 O-O Nc6
@@ -23,7 +25,9 @@ d4 d5 c4 dxc4 e3 Nf6 Bxc4 e6 Nf3 c5 O-O Nc6
 
 eco: D06
 
-Black declines the pawn and keeps the center solid. This is the most common response at club level. We keep pressure with Nc3 and play for e4 later.
+Idea: Black supports d5 solidly with ...e6, keeping a balanced center at the cost of a temporarily blocked c8 bishop.
+Plan: Build pressure with Nc3, pin the f6 knight via Bg5, complete development with e3 and Nf3, and retreat Bh4 to keep tension.
+Watch Out: Don't release central tension too early—wait until Black commits on the queenside before deciding on cxd5 or e4.
 
 ```moves
 d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7 e3 O-O Nf3 h6 Bh4 b6
@@ -34,7 +38,9 @@ d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7 e3 O-O Nf3 h6 Bh4 b6
 eco: D10
 playerColor: white
 
-Black defends with c6 to support d5 without blocking the light-squared bishop. This is very solid. We prevent ...b5 with a4 and recapture on c4 cleanly.
+Idea: Black defends d5 with ...c6 so the light-squared bishop can develop outside the pawn chain to f5.
+Plan: Prevent ...b5 with a4 after ...dxc4, regain the pawn cleanly with e3 and Bxc4, castle early, and contest the e4 square.
+Watch Out: Watch Black's pin with ...Bb4 and ...Bf5; avoid leaving b2 or e4 underdefended when expanding.
 
 ```moves
 d4 d5 c4 c6 Nf3 Nf6 Nc3 dxc4 a4 Bf5 e3 e6 Bxc4 Bb4 O-O Nbd7

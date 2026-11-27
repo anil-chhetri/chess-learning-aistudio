@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Chess, type Move, type PieceSymbol, type Square } from 'chess.js';
 import { getArrowGeometry } from '../lib/boardGeometry.ts';
@@ -44,7 +44,7 @@ function getPieceImagePath(color: 'w' | 'b', type: PieceSymbol): string {
   return `assets/pieces/${color}${type.toUpperCase()}.svg`;
 }
 
-export function ChessBoard({
+export const ChessBoard = memo(function ChessBoard({
   fen,
   orientation,
   lastMove,
@@ -194,7 +194,7 @@ export function ChessBoard({
 
   return (
     <div className="relative select-none w-full">
-      <div className="relative w-full aspect-square rounded-lg overflow-hidden border border-[#27382C] shadow-sm bg-[#27382C]">
+      <div className="relative w-full aspect-square rounded-[8px] overflow-hidden border border-primary-900/30 shadow-md bg-primary-900">
         <div
           role="grid"
           aria-label="Chessboard"
@@ -225,14 +225,12 @@ export function ChessBoard({
           const rankChar = square[1];
           const fileChar = square[0];
 
-          let squareColorClass = isLight ? 'bg-[#EDEAD9]' : 'bg-[#527A5B]';
+          let squareColorClass = isLight ? 'bg-board-light' : 'bg-board-dark';
           if (isSelected) {
-            squareColorClass = isLight ? 'bg-[#D6E6B8]' : 'bg-[#3D6A46]';
-          } else if (isLastMoveSquare) {
-            squareColorClass = isLight ? 'bg-[#EAE2B2]' : 'bg-[#6A8C56]';
+            squareColorClass = isLight ? 'bg-primary-100' : 'bg-primary-700';
           }
 
-          const coordTextClass = isLight ? 'text-[#44634C]' : 'text-[#EDEAD9]/90';
+          const coordTextClass = isLight ? 'text-primary-900' : 'text-board-light';
 
           const pieceLabel = piece
             ? `${piece.color === 'w' ? 'white' : 'black'} ${PIECE_NAMES[piece.type]}`
@@ -258,6 +256,14 @@ export function ChessBoard({
               aria-pressed={isSelected}
               className={`relative flex items-center justify-center w-full h-full touch-manipulation transition-colors duration-100 focus-visible:z-20 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900 ${squareColorClass}`}
             >
+              {/* Last Move Highlight (#F6F669) */}
+              {isLastMoveSquare && !isSelected && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0 bg-board-highlight/60 pointer-events-none"
+                />
+              )}
+
               {/* Checked King Radial Indicator */}
               {isCheckedKing && (
                 <span
@@ -359,21 +365,21 @@ export function ChessBoard({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-[25] w-full h-full"
           >
-            <g opacity="0.88">
+            <g opacity="0.8">
               <line
                 x1={arrow.x1}
                 y1={arrow.y1}
                 x2={arrow.shaftEndX}
                 y2={arrow.shaftEndY}
-                stroke="#FFFBEB"
-                strokeWidth="22"
+                stroke="var(--color-white)"
+                strokeWidth="20"
                 strokeLinecap="round"
               />
               <polygon
                 points={arrow.headPoints}
-                fill="#D97706"
-                stroke="#FFFBEB"
-                strokeWidth="5"
+                fill="var(--color-board-arrow)"
+                stroke="var(--color-white)"
+                strokeWidth="4"
                 strokeLinejoin="round"
               />
               <line
@@ -381,8 +387,8 @@ export function ChessBoard({
                 y1={arrow.y1}
                 x2={arrow.shaftEndX}
                 y2={arrow.shaftEndY}
-                stroke="#D97706"
-                strokeWidth="15"
+                stroke="var(--color-board-arrow)"
+                strokeWidth="14"
                 strokeLinecap="round"
               />
             </g>
@@ -443,4 +449,4 @@ export function ChessBoard({
       )}
     </div>
   );
-}
+});

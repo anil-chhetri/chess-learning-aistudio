@@ -1,240 +1,213 @@
-import { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
-import { DRILL_STATES, type DrillStatus } from '../lib/drill.ts';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { structureStudyNotes } from '../lib/notesParser.ts';
 import type { ParsedOpening, ParsedVariation } from '../lib/parser.ts';
-
-interface MovePair {
-  moveNumber: number;
-  white: string;
-  black: string | null;
-}
 
 interface NotesPanelProps {
   opening: ParsedOpening | null;
   selectedVariation: ParsedVariation | null;
-  drillStatus: DrillStatus;
-  drillIndex: number;
-  mistakes: number;
-  history: string[];
-  fen: string;
+  pinned?: boolean;
+  onToggle?: () => void;
 }
 
-function groupHistoryIntoPairs(history: string[]): MovePair[] {
-  const pairs: MovePair[] = [];
-  for (let i = 0; i < history.length; i += 2) {
-    pairs.push({
-      moveNumber: Math.floor(i / 2) + 1,
-      white: history[i],
-      black: history[i + 1] ?? null,
-    });
-  }
-  return pairs;
-}
+const HOVER_CLOSE_DELAY_MS = 140;
 
 export function NotesPanel({
   opening,
   selectedVariation,
-  drillStatus,
-  drillIndex,
-  mistakes,
-  history,
-  fen,
+  pinned = true,
+  onToggle,
 }: NotesPanelProps) {
-  const [copiedFen, setCopiedFen] = useState(false);
-  const movePairs = groupHistoryIntoPairs(history);
-  const totalMoves = selectedVariation?.moves.length ?? 0;
-  const progressPct =
-    totalMoves > 0 ? Math.min(100, Math.round((drillIndex / totalMoves) * 100)) : 0;
+  const [expandedNotes, setExpandedNotes] = useState(false);
+  const [peeking, setPeeking] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const structured = structureStudyNotes(selectedVariation, opening?.notes);
 
-  const handleCopyFen = async () => {
-    try {
-      await navigator.clipboard.writeText(fen);
-      setCopiedFen(true);
-      window.setTimeout(() => setCopiedFen(false), 1600);
-    } catch {
-      // Clipboard API unavailable in restricted contexts
+  const cancelScheduledClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
     }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    cancelScheduledClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setPeeking(false);
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [cancelScheduledClose]);
+
+  useEffect(() => {
+    return () => {
+      cancelScheduledClose();
+    };
+  }, [cancelScheduledClose]);
+
+  useEffect(() => {
+    if (pinned) {
+      cancelScheduledClose();
+      setPeeking(false);
+    }
+  }, [pinned, cancelScheduledClose]);
+
+  const handlePointerEnter = (event: PointerEvent<HTMLElement>) => {
+    if (pinned || event.pointerType !== 'mouse') return;
+    cancelScheduledClose();
+    setPeeking(true);
   };
 
-  return (
-    <aside
-      aria-label="Study Notes and Drill Progress"
-      className="bg-white border border-[#E2E0D8] rounded-lg p-5 flex flex-col gap-5 h-full"
-    >
-      {/* Drill Progress & Mistakes */}
-      {selectedVariation && drillStatus !== DRILL_STATES.IDLE && (
-        <section
-          aria-label="Drill progress"
-          className="bg-[#F7F6F2] border border-[#E2E0D8] rounded-md p-3.5 space-y-2.5"
-        >
-          <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular">
-            <span className="font-semibold text-zinc-900">
-              Move {drillIndex} / {totalMoves}
-            </span>
-            <span
-              className={`font-semibold ${
-                mistakes > 0 ? 'text-red-700' : 'text-emerald-800'
-              }`}
-            >
-              Mistakes: {mistakes}
-            </span>
-          </div>
-          <div
-            role="progressbar"
-            aria-valuenow={drillIndex}
-            aria-valuemin={0}
-            aria-valuemax={totalMoves}
-            aria-label="Variation completion progress"
-            className="w-full h-2 bg-[#E2E0D8] rounded-full overflow-hidden"
-          >
-            <div
-              className="h-full bg-[#1B5E3A] transition-all duration-200"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-        </section>
-      )}
+  const handlePointerLeave = (event: PointerEvent<HTMLElement>) => {
+    if (pinned || event.pointerType !== 'mouse') return;
+    scheduleClose();
+  };
 
-      {/* Notes Section */}
-      <section aria-labelledby="notes-heading">
-        <div className="flex items-center justify-between gap-2 border-b border-[#ECEAE3] pb-3">
+  const handlePinOpen = () => {
+    cancelScheduledClose();
+    setPeeking(false);
+    onToggle?.();
+  };
+
+  const renderNotesCard = (isOverlay: boolean) => (
+    <section
+      aria-labelledby={isOverlay ? 'notes-preview-heading' : 'notes-heading'}
+      className={`w-full rounded-[10px] border p-3 space-y-2 ${
+        isOverlay
+          ? 'border-primary-600/50 bg-white/95 backdrop-blur-xs shadow-xl'
+          : 'border-neutral-200 bg-neutral-50'
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 pb-1.5">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <h2
-            id="notes-heading"
-            className="text-lg font-semibold text-zinc-900 tracking-tight"
+            id={isOverlay ? 'notes-preview-heading' : 'notes-heading'}
+            className="ds-text-body-bold text-neutral-900 shrink-0"
           >
             Study Notes
           </h2>
-          {selectedVariation?.eco && (
-            <span className="text-xs font-mono-tabular text-zinc-600">
-              ECO {selectedVariation.eco}
+          {selectedVariation && (
+            <span className="ds-text-meta text-neutral-600 truncate">
+              {selectedVariation.name} ·{' '}
+              <span className="capitalize">
+                Playing {selectedVariation.playerColor || 'white'}
+              </span>
             </span>
           )}
         </div>
 
-        {selectedVariation ? (
-          <div className="mt-3 space-y-2.5">
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
-              <span className="font-semibold text-zinc-800">
-                {selectedVariation.name}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span className="capitalize">
-                Playing {selectedVariation.playerColor || 'white'}
-              </span>
-            </div>
-            <p className="text-sm text-zinc-700 leading-relaxed">
-              {selectedVariation.notes ||
-                'No study notes provided for this variation.'}
-            </p>
-          </div>
-        ) : opening?.notes ? (
-          <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
-            {opening.notes}
-          </p>
-        ) : (
-          <p className="mt-3 text-sm text-zinc-500">
-            Select a variation from the Opening Library to start drilling and
-            view its strategic notes.
-          </p>
-        )}
-      </section>
+        <div className="flex items-center gap-2 shrink-0">
+          {selectedVariation?.eco && (
+            <span className="ds-text-meta font-mono-tabular text-neutral-500">
+              ECO {selectedVariation.eco}
+            </span>
+          )}
+          {(structured.hasMore || Boolean(structured.fullText)) && (
+            <button
+              type="button"
+              onClick={() => setExpandedNotes((prev) => !prev)}
+              aria-expanded={expandedNotes}
+              className="inline-flex items-center gap-0.5 ds-text-meta font-semibold text-primary-700 hover:text-primary-900 cursor-pointer focus-visible:outline-2 focus-visible:outline-primary-700 rounded"
+            >
+              <span>{expandedNotes ? 'Less' : 'More'}</span>
+              {expandedNotes ? (
+                <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+              )}
+            </button>
+          )}
+          {onToggle && (
+            <button
+              type="button"
+              onClick={isOverlay ? handlePinOpen : onToggle}
+              aria-label={isOverlay ? 'Keep study notes open' : 'Hide study notes'}
+              title={isOverlay ? 'Pin study notes open' : 'Hide study notes'}
+              className="p-0.5 text-neutral-500 hover:text-neutral-900 rounded-[6px] hover:bg-neutral-200/60 cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-primary-700"
+            >
+              {isOverlay ? (
+                <ChevronUp className="w-4 h-4 text-primary-700" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="w-4 h-4" aria-hidden="true" />
+              )}
+            </button>
+          )}
+        </div>
+      </div>
 
-      {/* Move History Section */}
-      <section
-        aria-labelledby="history-heading"
-        className="border-t border-[#ECEAE3] pt-4 flex-1 flex flex-col min-h-0"
-      >
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h3
-            id="history-heading"
-            className="text-sm font-semibold text-zinc-900"
+      <dl className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+        <div className="min-w-0">
+          <dt className="ds-text-label text-primary-900">Idea</dt>
+          <dd
+            className={`ds-text-meta text-neutral-700 mt-0.5 ${
+              expandedNotes ? '' : 'line-clamp-2'
+            }`}
           >
-            Move History
-          </h3>
-          <span className="text-xs font-mono-tabular text-zinc-500">
-            {history.length} {history.length === 1 ? 'ply' : 'plies'}
-          </span>
+            {structured.idea}
+          </dd>
         </div>
 
-        {movePairs.length === 0 ? (
-          <div className="flex-1 flex items-center text-xs text-zinc-500 bg-[#F7F6F2] border border-[#ECEAE3] rounded-md px-3.5 py-6">
-            Play the opening move on the board to begin the drill.
-          </div>
-        ) : (
-          <div className="flex-1 max-h-72 overflow-y-auto border border-[#ECEAE3] rounded-md">
-            <table className="w-full text-xs font-mono-tabular">
-              <thead className="bg-[#F7F6F2] text-zinc-500 border-b border-[#ECEAE3]">
-                <tr>
-                  <th className="py-1.5 px-2.5 text-left font-medium w-10">
-                    #
-                  </th>
-                  <th className="py-1.5 px-2.5 text-left font-medium">White</th>
-                  <th className="py-1.5 px-2.5 text-left font-medium">Black</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F1EFE9]">
-                {movePairs.map((pair, idx) => {
-                  const isLastPair = idx === movePairs.length - 1;
-                  return (
-                    <tr key={pair.moveNumber} className="hover:bg-[#FAF9F6]">
-                      <td className="py-1.5 px-2.5 text-zinc-400">
-                        {pair.moveNumber}.
-                      </td>
-                      <td
-                        className={`py-1.5 px-2.5 ${
-                          isLastPair && pair.black === null
-                            ? 'font-semibold text-emerald-800'
-                            : 'text-zinc-900'
-                        }`}
-                      >
-                        {pair.white}
-                      </td>
-                      <td
-                        className={`py-1.5 px-2.5 ${
-                          isLastPair && pair.black !== null
-                            ? 'font-semibold text-emerald-800'
-                            : 'text-zinc-900'
-                        }`}
-                      >
-                        {pair.black ?? '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* Current FEN */}
-      <section aria-labelledby="fen-heading" className="border-t border-[#ECEAE3] pt-4">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <h3 id="fen-heading" className="text-xs font-medium text-zinc-500">
-            Position FEN
-          </h3>
-          <button
-            type="button"
-            onClick={handleCopyFen}
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900 px-2 py-1 rounded transition-colors focus-visible:outline-2 focus-visible:outline-zinc-900"
+        <div className="min-w-0">
+          <dt className="ds-text-label text-primary-900">Plan</dt>
+          <dd
+            className={`ds-text-meta text-neutral-700 mt-0.5 ${
+              expandedNotes ? '' : 'line-clamp-2'
+            }`}
           >
-            {copiedFen ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
-                <span>Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Copy</span>
-              </>
-            )}
-          </button>
+            {structured.plan}
+          </dd>
         </div>
-        <p className="text-[11px] font-mono-tabular text-zinc-600 bg-[#F7F6F2] border border-[#ECEAE3] rounded-md px-2.5 py-2 break-all select-all">
-          {fen}
+
+        <div className="min-w-0">
+          <dt className="ds-text-label text-amber-800">Watch Out</dt>
+          <dd
+            className={`ds-text-meta text-neutral-700 mt-0.5 ${
+              expandedNotes ? '' : 'line-clamp-2'
+            }`}
+          >
+            {structured.watchOut}
+          </dd>
+        </div>
+      </dl>
+
+      {expandedNotes && structured.fullText && (
+        <p className="ds-text-meta text-neutral-600 pt-1.5 border-t border-neutral-200 leading-relaxed">
+          {structured.fullText}
         </p>
-      </section>
-    </aside>
+      )}
+    </section>
+  );
+
+  if (pinned) {
+    return renderNotesCard(false);
+  }
+
+  return (
+    <div
+      className="relative w-full h-3.5 flex items-center"
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+    >
+      <button
+        type="button"
+        onClick={handlePinOpen}
+        aria-label="Show study notes"
+        aria-expanded={peeking}
+        title="Hover to preview study notes or click to keep visible"
+        className="group w-full h-3.5 flex items-center gap-2 cursor-pointer focus-visible:outline-2 focus-visible:outline-primary-700 rounded"
+      >
+        <span className="h-[2px] flex-1 rounded-full bg-neutral-200 group-hover:bg-primary-600 transition-colors" />
+        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold leading-none text-neutral-500 group-hover:text-primary-800 transition-colors shrink-0">
+          <ChevronUp className="w-3 h-3" aria-hidden="true" />
+          <span>Study Notes</span>
+        </span>
+        <span className="h-[2px] flex-1 rounded-full bg-neutral-200 group-hover:bg-primary-600 transition-colors" />
+      </button>
+
+      {peeking && (
+        <div className="absolute bottom-0 left-0 right-0 z-30">
+          {renderNotesCard(true)}
+        </div>
+      )}
+    </div>
   );
 }

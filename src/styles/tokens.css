@@ -1,0 +1,48 @@
+:root {
+  /* Fonts (preserving project typography) */
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Primary — Chess Green */
+  --color-primary-900: #0F5132;
+  --color-primary-700: #166534;
+  --color-primary-500: #1A7F4B;
+  --color-primary-100: #D9EAD3;
+  --color-primary-50: #F0F7F0;
+
+  /* Accent — Amber (Hint / Warning) */
+  --color-accent-500: #F59E0B;
+  --color-accent-100: #FEF3C7;
+
+  /* Semantic */
+  --color-success: #15803D;
+  --color-error: #DC2626;
+  --color-info: #2563EB;
+
+  /* Neutrals */
+  --color-neutral-900: #111827;
+  --color-neutral-700: #374151;
+  --color-neutral-500: #6B7280;
+  --color-neutral-300: #D1D5DB;
+  --color-neutral-200: #E5E7EB;
+  --color-neutral-100: #F3F4F6;
+  --color-neutral-50: #F9FAFB;
+  --color-white: #FFFFFF;
+
+  /* Board Colors */
+  --color-board-light: #EBECD0;
+  --color-board-dark: #739552;
+  --color-board-highlight: #F6F669;
+  --color-board-arrow: #F59E0B;
+
+  /* Spacing & Radius */
+  --radius-card: 12px;
+  --radius-button: 10px;
+  --radius-input: 10px;
+  --radius-board: 8px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-board: 0 4px 12px rgba(0, 0, 0, 0.08);
+}

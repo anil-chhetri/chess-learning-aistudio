@@ -21,7 +21,9 @@ tags: [d4, closed]
 
 ## Declined
 eco: D06
-Black keeps the center solid with e6.
+Idea: Black supports d5 solidly with ...e6.
+Plan: Build central pressure with Nc3, Bg5, and e3 before choosing cxd5 or e4.
+Watch Out: Don't release central tension too early.
 
 \`\`\`moves
 d4 d5 c4 e6 Nc3 Nf6

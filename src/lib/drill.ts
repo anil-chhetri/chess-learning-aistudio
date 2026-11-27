@@ -1,9 +1,10 @@
 import { Chess, type Square } from 'chess.js';
 import type { ParsedVariation } from './parser.ts';
 
-export const OPPONENT_DELAY_MS = 700;
+export const OPPONENT_DELAY_MS = 600;
+export const CORRECT_FEEDBACK_MS = 600;
 export const LOOP_DELAY_MS = 1500;
-export const WRONG_FLASH_MS = 650;
+export const WRONG_FLASH_MS = 900;
 
 export const DRILL_STATES = {
   IDLE: 'IDLE',
@@ -13,6 +14,7 @@ export const DRILL_STATES = {
 } as const;
 
 export type DrillStatus = (typeof DRILL_STATES)[keyof typeof DRILL_STATES];
+export type DrillFeedback = 'correct' | 'wrong' | null;
 
 export interface HintSquares {
   from: Square;
@@ -27,9 +29,12 @@ export interface DrillState {
   history: string[];
   lastMove: { from: Square; to: Square } | null;
   drillIndex: number;
+  correctMoves: number;
   mistakes: number;
   hintSquares: HintSquares | null;
   wrongSquare: Square | null;
+  feedback: DrillFeedback;
+  wrongAttemptSeq: number;
 }
 
 export interface UserMoveOutcome {
@@ -44,6 +49,18 @@ export function getVariationKey(openingPath: string, variationName: string): str
   return `${openingPath}::${variationName}`;
 }
 
+/**
+ * Computes rounded accuracy percentage from correct moves and wrong attempts.
+ * Returns 100 when no attempts have been recorded yet.
+ */
+export function calculateAccuracy(correctMoves: number, mistakes: number): number {
+  const safeCorrect = Math.max(0, correctMoves);
+  const safeMistakes = Math.max(0, mistakes);
+  const totalAttempts = safeCorrect + safeMistakes;
+  if (totalAttempts === 0) return 100;
+  return Math.round((safeCorrect / totalAttempts) * 100);
+}
+
 export function createIdleDrillState(): DrillState {
   return {
     status: DRILL_STATES.IDLE,
@@ -53,9 +70,12 @@ export function createIdleDrillState(): DrillState {
     history: [],
     lastMove: null,
     drillIndex: 0,
+    correctMoves: 0,
     mistakes: 0,
     hintSquares: null,
     wrongSquare: null,
+    feedback: null,
+    wrongAttemptSeq: 0,
   };
 }
 
@@ -87,9 +107,12 @@ export function startVariationDrill(
     history: [],
     lastMove: null,
     drillIndex: 0,
+    correctMoves: 0,
     mistakes: Math.max(0, initialMistakes),
     hintSquares: null,
     wrongSquare: null,
+    feedback: null,
+    wrongAttemptSeq: 0,
   };
 }
 
@@ -131,6 +154,8 @@ export function applyUserDrillMove(
         fen: fenSnapshot,
         mistakes: state.mistakes + 1,
         wrongSquare: to,
+        feedback: 'wrong',
+        wrongAttemptSeq: state.wrongAttemptSeq + 1,
       },
       result: 'wrong',
       soundType: 'wrong',
@@ -163,8 +188,10 @@ export function applyUserDrillMove(
       history: [...state.history, playedMove.san],
       lastMove: { from: playedMove.from, to: playedMove.to },
       drillIndex: nextIndex,
+      correctMoves: state.correctMoves + 1,
       hintSquares: null,
       wrongSquare: null,
+      feedback: 'correct',
     },
     result: 'correct',
     soundType,
@@ -182,7 +209,11 @@ export function applyOpponentDrillMove(state: DrillState): {
   const expectedSan = state.variation.moves[state.drillIndex];
   if (!expectedSan) {
     return {
-      state: { ...state, status: DRILL_STATES.VARIATION_COMPLETE },
+      state: {
+        ...state,
+        status: DRILL_STATES.VARIATION_COMPLETE,
+        feedback: null,
+      },
       soundType: null,
     };
   }
@@ -217,6 +248,7 @@ export function applyOpponentDrillMove(state: DrillState): {
       drillIndex: nextIndex,
       hintSquares: null,
       wrongSquare: null,
+      feedback: null,
     },
     soundType,
   };

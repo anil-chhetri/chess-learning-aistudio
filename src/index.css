@@ -1,16 +1,39 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+@theme {
+  --color-primary-900: #0F5132;
+  --color-primary-700: #166534;
+  --color-primary-500: #1A7F4B;
+  --color-primary-100: #D9EAD3;
+  --color-primary-50: #F0F7F0;
+
+  --color-accent-500: #F59E0B;
+  --color-accent-100: #FEF3C7;
+
+  --color-success: #15803D;
+  --color-error: #DC2626;
+  --color-info: #2563EB;
+
+  --color-neutral-900: #111827;
+  --color-neutral-700: #374151;
+  --color-neutral-500: #6B7280;
+  --color-neutral-300: #D1D5DB;
+  --color-neutral-200: #E5E7EB;
+  --color-neutral-100: #F3F4F6;
+  --color-neutral-50: #F9FAFB;
+
+  --color-board-light: #EBECD0;
+  --color-board-dark: #739552;
+  --color-board-highlight: #F6F669;
+  --color-board-arrow: #F59E0B;
+}
 
 @layer base {
-  :root {
-    --font-display: "Fraunces", Georgia, serif;
-    --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  }
-
   html {
     font-family: var(--font-sans);
-    background-color: #f5f4f0;
-    color: #18181b;
+    background-color: var(--color-neutral-50);
+    color: var(--color-neutral-900);
     -webkit-font-smoothing: antialiased;
   }
 
@@ -26,6 +49,85 @@
   }
 }
 
+/* Design Guide Typography Scale */
+.ds-text-display {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+}
+
+.ds-text-heading {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+
+.ds-text-body {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
+.ds-text-body-bold {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.ds-text-meta {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+}
+
+.ds-text-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+@keyframes ds-banner-pulse {
+  0% {
+    transform: scale(0.985);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.01);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ds-banner-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.animate-banner-pulse {
+  animation: ds-banner-pulse 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-banner-shake {
+  animation: ds-banner-shake 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -35,3 +137,25 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Responsive board stage sizing: larger board with right sidebar removed, expands further when Library is hidden */
+.board-stage-with-library {
+  width: 100%;
+  max-width: min(92vw, clamp(320px, calc(100dvh - 285px), 740px));
+}
+
+.board-stage-with-library-nomoves {
+  width: 100%;
+  max-width: min(92vw, clamp(320px, calc(100dvh - 265px), 760px));
+}
+
+.board-stage-focus {
+  width: 100%;
+  max-width: min(94vw, clamp(320px, calc(100dvh - 275px), 840px));
+}
+
+.board-stage-focus-nomoves {
+  width: 100%;
+  max-width: min(94vw, clamp(320px, calc(100dvh - 255px), 860px));
+}
+

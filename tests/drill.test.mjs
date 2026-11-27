@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Chess } from 'chess.js';
 import { describe, it } from 'node:test';
 import {
@@ -8,6 +10,7 @@ import {
 import {
   applyOpponentDrillMove,
   applyUserDrillMove,
+  calculateAccuracy,
   computeGuidedMove,
   computeHintSquares,
   DRILL_STATES,
@@ -15,10 +18,23 @@ import {
   startVariationDrill,
 } from '../src/lib/drill.ts';
 import {
+  getOpeningMasterySummary,
+  getVariationStatus,
+  recordVariationAttempt,
+  recordVariationCompletion,
+} from '../src/lib/mastery.ts';
+import { structureStudyNotes } from '../src/lib/notesParser.ts';
+import { parseOpeningMarkdown } from '../src/lib/parser.ts';
+import {
   loadTrainerProgress,
   saveLastSelection,
   saveMistakesByVariation,
+  saveVariationStats,
 } from '../src/lib/storage.ts';
+import {
+  filterOpeningsByQuery,
+  formatVariationDisplay,
+} from '../src/lib/variationDisplay.ts';
 
 const WHITE_SIX_PLY = {
   name: 'Accepted Short',
@@ -225,5 +241,164 @@ describe('Phase 3: Drill State Machine, Coaching Controls & Persistence', () => 
     assert.equal(Math.round(blackArrow.x1), 450);
 
     assert.equal(getArrowGeometry('e4', 'e4', 'white'), null);
+  });
+
+  it('10. Sprint 1: calculateAccuracy and repeated wrong-move feedback behave per spec', () => {
+    assert.equal(calculateAccuracy(0, 0), 100);
+    assert.equal(calculateAccuracy(5, 0), 100);
+    assert.equal(calculateAccuracy(5, 1), 83);
+    assert.equal(calculateAccuracy(0, 3), 0);
+
+    let state = startVariationDrill('lines/italian-gambit.md', WHITE_SIX_PLY, 0);
+    const initialFen = state.fen;
+
+    for (let i = 1; i <= 3; i += 1) {
+      const wrong = applyUserDrillMove(state, 'e2', 'e4');
+      assert.equal(wrong.result, 'wrong');
+      state = wrong.state;
+      assert.equal(state.mistakes, i);
+      assert.equal(state.drillIndex, 0);
+      assert.equal(state.fen, initialFen);
+      assert.equal(state.feedback, 'wrong');
+      assert.equal(state.wrongAttemptSeq, i);
+    }
+
+    const correct = applyUserDrillMove(state, 'd2', 'd4');
+    assert.equal(correct.result, 'correct');
+    assert.equal(correct.state.drillIndex, 1);
+    assert.equal(correct.state.correctMoves, 1);
+    assert.equal(correct.state.feedback, 'correct');
+
+    const afterReply = applyOpponentDrillMove(correct.state);
+    assert.equal(afterReply.state.feedback, null);
+    assert.equal(afterReply.state.drillIndex, 2);
+  });
+
+  it('11. Sprint 1: formatVariationDisplay and filterOpeningsByQuery isolate move text and filter Greco to 1 result', () => {
+    const grecoVar = {
+      name: 'Bishop Captures: 4...Bxd4 (Greco / Exchange Line)',
+      eco: 'C50',
+      playerColor: 'white',
+      notes: '',
+      moves: ['e4', 'e5'],
+      hasMovesBlock: true,
+      valid: true,
+      errors: [],
+    };
+    const otherVar = {
+      name: 'Declined: 4...Bb6 (Safe Retreat)',
+      eco: 'C50',
+      playerColor: 'white',
+      notes: '',
+      moves: ['e4', 'e5'],
+      hasMovesBlock: true,
+      valid: true,
+      errors: [],
+    };
+
+    const display = formatVariationDisplay(grecoVar);
+    assert.equal(display.primaryLabel, '4... Bxd4');
+    assert.equal(display.nickname, 'Bishop Captures · Greco / Exchange Line');
+
+    const mockOpenings = [
+      {
+        path: 'lines/italian-gambit.md',
+        rawMarkdown: '',
+        parsed: {
+          formatVersion: 1,
+          title: 'Italian Gambit',
+          playerColor: 'white',
+          tags: ['e4', 'gambit'],
+          notes: '',
+          variations: [grecoVar, otherVar],
+          errors: [],
+        },
+      },
+      {
+        path: 'lines/sicilian-defense.md',
+        rawMarkdown: '',
+        parsed: {
+          formatVersion: 1,
+          title: 'Sicilian Defense',
+          playerColor: 'black',
+          tags: ['c5'],
+          notes: '',
+          variations: [BLACK_SIX_PLY],
+          errors: [],
+        },
+      },
+    ];
+
+    const filtered = filterOpeningsByQuery(mockOpenings, 'Greco');
+    assert.equal(filtered.length, 1);
+    assert.equal(filtered[0].variations.length, 1);
+    assert.equal(filtered[0].variations[0].name, grecoVar.name);
+  });
+
+  it('12. Sprint 2: variation status transitions New -> Learning -> Mastered (>=80% twice) and persists', () => {
+    assert.equal(getVariationStatus(undefined), 'new');
+
+    let stats = recordVariationAttempt(undefined, 1000);
+    assert.equal(getVariationStatus(stats), 'learning');
+
+    // Completed with 75% twice -> stays Learning
+    stats = recordVariationCompletion(stats, 75, 2000);
+    stats = recordVariationCompletion(stats, 75, 3000);
+    assert.equal(getVariationStatus(stats), 'learning');
+
+    // Completed with 90% once -> still Learning
+    stats = recordVariationCompletion(stats, 90, 4000);
+    assert.equal(getVariationStatus(stats), 'learning');
+
+    // Completed with 90% twice -> Mastered
+    stats = recordVariationCompletion(stats, 90, 5000);
+    assert.equal(getVariationStatus(stats), 'mastered');
+    assert.equal(stats.bestAccuracy, 90);
+
+    const summary = getOpeningMasterySummary(
+      'lines/queens-gambit.md',
+      [WHITE_SIX_PLY],
+      { 'lines/queens-gambit.md::Accepted Short': stats },
+    );
+    assert.equal(summary.masteryPct, 100);
+    assert.equal(summary.status, 'mastered');
+
+    // Storage round-trip
+    const store = new Map();
+    const mockStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+    };
+    saveVariationStats({ 'lines/queens-gambit.md::Accepted Short': stats }, mockStorage);
+    const restored = loadTrainerProgress(mockStorage);
+    assert.equal(
+      getVariationStatus(restored.variationStats['lines/queens-gambit.md::Accepted Short']),
+      'mastered',
+    );
+  });
+
+  it('13. Sprint 2: structureStudyNotes populates Idea and Plan for every variation across all opening files', () => {
+    const linesDir = path.resolve(process.cwd(), 'public/lines');
+    const files = fs.readdirSync(linesDir).filter((f) => f.endsWith('.md'));
+    assert.ok(files.length >= 4);
+
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(linesDir, file), 'utf8');
+      const parsed = parseOpeningMarkdown(raw);
+      for (const variation of parsed.variations) {
+        const structured = structureStudyNotes(variation, parsed.notes);
+        assert.ok(structured.idea.trim().length > 0, `${file} / ${variation.name} missing Idea`);
+        assert.ok(structured.plan.trim().length > 0, `${file} / ${variation.name} missing Plan`);
+        assert.ok(structured.watchOut.trim().length > 0, `${file} / ${variation.name} missing Watch Out`);
+      }
+    }
+
+    const explicit = structureStudyNotes({
+      ...WHITE_SIX_PLY,
+      notes: 'Idea: Control d5.\nPlan: Castle kingside.\nWatch Out: Avoid early Qa4+.',
+    });
+    assert.equal(explicit.idea, 'Control d5.');
+    assert.equal(explicit.plan, 'Castle kingside.');
+    assert.equal(explicit.watchOut, 'Avoid early Qa4+.');
   });
 });
